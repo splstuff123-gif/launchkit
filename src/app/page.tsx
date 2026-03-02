@@ -176,6 +176,20 @@ export default function Home() {
                         </a>
                       </div>
                     )}
+
+                    {result.vercelImportUrl && (
+                      <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 p-4 rounded-lg border border-blue-700">
+                        <p className="text-gray-400 text-sm mb-2">🚀 Final Step</p>
+                        <a 
+                          href={result.vercelImportUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-block px-6 py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-900 transition"
+                        >
+                          ▲ Deploy to Vercel
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

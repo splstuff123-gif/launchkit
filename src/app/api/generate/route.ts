@@ -168,13 +168,17 @@ export async function POST(request: Request) {
       console.log('Manual setup required: Import the GitHub repo in Vercel dashboard');
     }
 
+    // Generate Vercel import URL
+    const vercelImportUrl = `https://vercel.com/new/clone?repository-url=${encodeURIComponent(repo.html_url)}`;
+
     return NextResponse.json({
       success: true,
       url: deployedUrl,
       githubUrl: repo.html_url,
+      vercelImportUrl: vercelImportUrl,
       stripeUrl: null, // TODO: Add Stripe integration
       supabaseUrl: supabaseUrl,
-      message: 'SaaS deployed successfully!',
+      message: 'SaaS created! Click "Deploy to Vercel" to complete setup.',
     });
 
   } catch (error: any) {
