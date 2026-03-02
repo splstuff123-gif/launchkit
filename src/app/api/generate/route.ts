@@ -223,3 +223,23 @@ export async function POST(request: Request) {
     );
   }
 }
+
+async function getSupabaseOrgId(): Promise<string> {
+  // Get the first organization ID from the user's account
+  const response = await fetch('https://api.supabase.com/v1/organizations', {
+    headers: {
+      Authorization: `Bearer ${SUPABASE_ACCESS_TOKEN}`,
+    },
+  });
+  
+  const orgs = await response.json();
+  if (orgs && orgs.length > 0) {
+    return orgs[0].id;
+  }
+  
+  throw new Error('No Supabase organization found');
+}
+
+function generateRandomPassword(): string {
+  return Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16);
+}
