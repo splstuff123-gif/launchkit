@@ -74,7 +74,7 @@ export async function POST(request: Request) {
           repo: repoName,
           path,
           message: `Add ${path}`,
-          content: Buffer.from(content).toString('base64'),
+          content: Buffer.from(content as string).toString('base64'),
           ...(sha && { sha }),
         });
       } catch (error) {
