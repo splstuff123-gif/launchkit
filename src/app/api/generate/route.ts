@@ -152,7 +152,8 @@ export async function POST(request: Request) {
       });
 
       if (linkRepo.ok) {
-        console.log('✅ GitHub repository linked');
+        const linkData = await linkRepo.json();
+        console.log('✅ GitHub repository linked:', linkData);
         
         // Wait a moment for GitHub to sync
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -171,7 +172,7 @@ export async function POST(request: Request) {
             target: 'production',
             gitSource: {
               type: 'github',
-              repo: `${GITHUB_USERNAME}/${repoName}`,
+              repoId: repo.id,
               ref: 'main',
             },
           }),
