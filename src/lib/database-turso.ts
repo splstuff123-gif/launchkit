@@ -44,8 +44,12 @@ export async function createTursoDatabase(
 
   const tokenData = await tokenResponse.json();
 
+  // Turso API returns hostname, but libsql needs the full libsql:// URL
+  const hostname = data.database.hostname;
+  const url = hostname.startsWith('libsql://') ? hostname : `libsql://${hostname}`;
+
   return {
-    url: data.database.hostname,
+    url,
     authToken: tokenData.token,
   };
 }
