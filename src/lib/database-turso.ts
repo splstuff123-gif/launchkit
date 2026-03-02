@@ -30,9 +30,18 @@ export async function createTursoDatabase(
 
   const data = await response.json();
   
+  // Extract database name and hostname from response
+  const dbName = data.database?.name || data.name;
+  const hostname = data.database?.hostname || data.hostname;
+  
+  if (!dbName || !hostname) {
+    console.error('Turso API response:', data);
+    throw new Error('Invalid Turso API response: missing database name or hostname');
+  }
+  
   // Generate auth token for this database
   const tokenResponse = await fetch(
-    `https://api.turso.tech/v1/databases/${data.database.name}/auth/tokens`,
+    `https://api.turso.tech/v1/databases/${dbName}/auth/tokens`,
     {
       method: 'POST',
       headers: {
@@ -42,15 +51,19 @@ export async function createTursoDatabase(
     }
   );
 
+  if (!tokenResponse.ok) {
+    const error = await tokenResponse.text();
+    throw new Error(`Failed to create Turso auth token: ${error}`);
+  }
+
   const tokenData = await tokenResponse.json();
 
   // Turso API returns hostname, but libsql needs the full libsql:// URL
-  const hostname = data.database.hostname;
   const url = hostname.startsWith('libsql://') ? hostname : `libsql://${hostname}`;
 
   return {
     url,
-    authToken: tokenData.token,
+    authToken: tokenData.token || tokenData.jwt,
   };
 }
 
