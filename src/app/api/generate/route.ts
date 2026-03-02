@@ -233,7 +233,7 @@ function generateSaaSBoilerplate(name: string, description: string, price: strin
         start: 'next start',
       },
       dependencies: {
-        next: '15.1.6',
+        next: '^16.1.6',
         react: '^19',
         'react-dom': '^19',
       },
