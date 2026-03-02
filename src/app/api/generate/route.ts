@@ -32,13 +32,34 @@ export async function POST(request: Request) {
     
     // Push files to GitHub
     for (const [path, content] of Object.entries(files)) {
-      await octokit.repos.createOrUpdateFileContents({
-        owner: GITHUB_USERNAME,
-        repo: repoName,
-        path,
-        message: `Add ${path}`,
-        content: Buffer.from(content).toString('base64'),
-      });
+      try {
+        // Try to get the file first to see if it exists
+        let sha;
+        try {
+          const { data: existingFile } = await octokit.repos.getContent({
+            owner: GITHUB_USERNAME,
+            repo: repoName,
+            path,
+          });
+          if ('sha' in existingFile) {
+            sha = existingFile.sha;
+          }
+        } catch (error) {
+          // File doesn't exist, that's fine
+        }
+
+        await octokit.repos.createOrUpdateFileContents({
+          owner: GITHUB_USERNAME,
+          repo: repoName,
+          path,
+          message: `Add ${path}`,
+          content: Buffer.from(content).toString('base64'),
+          ...(sha && { sha }),
+        });
+      } catch (error) {
+        console.error(`Failed to create ${path}:`, error);
+        // Continue with other files
+      }
     }
     
     console.log('✅ Code pushed to GitHub');
