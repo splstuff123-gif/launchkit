@@ -112,9 +112,11 @@ export async function POST(request: Request) {
       console.error('Supabase error:', errorData);
     }
 
-    // Step 4: Deploy to Vercel
-    console.log('🚢 Deploying to Vercel...');
-    const vercelDeployment = await fetch('https://api.vercel.com/v13/deployments', {
+    // Step 4: Create Vercel project and link to GitHub
+    console.log('🚢 Creating Vercel project...');
+    
+    // First, create a Vercel project
+    const vercelProject = await fetch('https://api.vercel.com/v10/projects', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${VERCEL_TOKEN}`,
@@ -122,21 +124,49 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         name: repoName,
-        gitSource: {
+        framework: 'nextjs',
+        gitRepository: {
           type: 'github',
           repo: `${GITHUB_USERNAME}/${repoName}`,
-          ref: 'main',
-        },
-        projectSettings: {
-          framework: 'nextjs',
         },
       }),
     });
 
-    const vercelData = await vercelDeployment.json();
-    console.log('✅ Vercel deployment initiated:', vercelData);
-
-    const deployedUrl = `https://${repoName}.vercel.app`;
+    let deployedUrl = `https://${repoName}.vercel.app`;
+    
+    if (vercelProject.ok) {
+      const projectData = await vercelProject.json();
+      console.log('✅ Vercel project created:', projectData);
+      
+      // Trigger initial deployment
+      const vercelDeploy = await fetch('https://api.vercel.com/v13/deployments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${VERCEL_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: repoName,
+          project: projectData.id,
+          target: 'production',
+          gitSource: {
+            type: 'github',
+            repo: `${GITHUB_USERNAME}/${repoName}`,
+            ref: 'main',
+          },
+        }),
+      });
+      
+      if (vercelDeploy.ok) {
+        const deployData = await vercelDeploy.json();
+        console.log('✅ Vercel deployment initiated');
+        deployedUrl = `https://${deployData.url}`;
+      }
+    } else {
+      const errorData = await vercelProject.json();
+      console.warn('⚠️  Vercel project creation failed:', errorData);
+      console.log('Manual setup required: Import the GitHub repo in Vercel dashboard');
+    }
 
     return NextResponse.json({
       success: true,
