@@ -1,37 +1,250 @@
 import { NextResponse } from 'next/server';
+import { Octokit } from '@octokit/rest';
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
+const GITHUB_USERNAME = process.env.GITHUB_USERNAME!;
+const VERCEL_TOKEN = process.env.VERCEL_TOKEN!;
+const SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN!;
 
 export async function POST(request: Request) {
   try {
     const { name, description, price } = await request.json();
-
-    // TODO: This is where we'll orchestrate everything
-    // For now, just simulate a response
     
-    console.log('Generating SaaS:', { name, description, price });
+    console.log('🚀 Starting deployment:', { name, description, price });
 
-    // Simulate some work
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Step 1: Create GitHub repo
+    console.log('📦 Creating GitHub repository...');
+    const repoName = name.toLowerCase().replace(/\s+/g, '-');
+    const octokit = new Octokit({ auth: GITHUB_TOKEN });
+    
+    const { data: repo } = await octokit.repos.createForAuthenticatedUser({
+      name: repoName,
+      description,
+      private: false,
+      auto_init: true,
+    });
+    
+    console.log('✅ GitHub repo created:', repo.html_url);
 
-    // TODO: Replace with real orchestration
-    // 1. Generate code from template
-    // 2. Create GitHub repo
-    // 3. Provision Supabase
-    // 4. Set up Stripe product
-    // 5. Deploy to Vercel
+    // Step 2: Generate boilerplate code and push to repo
+    console.log('📝 Generating code...');
+    const files = generateSaaSBoilerplate(name, description, price);
+    
+    // Push files to GitHub
+    for (const [path, content] of Object.entries(files)) {
+      await octokit.repos.createOrUpdateFileContents({
+        owner: GITHUB_USERNAME,
+        repo: repoName,
+        path,
+        message: `Add ${path}`,
+        content: Buffer.from(content).toString('base64'),
+      });
+    }
+    
+    console.log('✅ Code pushed to GitHub');
+
+    // Step 3: Create Supabase project
+    console.log('🗄️  Creating Supabase project...');
+    const supabaseProject = await fetch('https://api.supabase.com/v1/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${SUPABASE_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: repoName,
+        organization_id: await getSupabaseOrgId(),
+        plan: 'free',
+        region: 'us-east-1',
+        db_pass: generateRandomPassword(),
+      }),
+    });
+
+    let supabaseData;
+    let supabaseUrl = null;
+    
+    if (supabaseProject.ok) {
+      supabaseData = await supabaseProject.json();
+      supabaseUrl = `https://app.supabase.com/project/${supabaseData.id}`;
+      console.log('✅ Supabase project created:', supabaseUrl);
+    } else {
+      console.warn('⚠️  Supabase project creation failed, continuing without it');
+      const errorData = await supabaseProject.json();
+      console.error('Supabase error:', errorData);
+    }
+
+    // Step 4: Deploy to Vercel
+    console.log('🚢 Deploying to Vercel...');
+    const vercelDeployment = await fetch('https://api.vercel.com/v13/deployments', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${VERCEL_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: repoName,
+        gitSource: {
+          type: 'github',
+          repo: `${GITHUB_USERNAME}/${repoName}`,
+          ref: 'main',
+        },
+        projectSettings: {
+          framework: 'nextjs',
+        },
+      }),
+    });
+
+    const vercelData = await vercelDeployment.json();
+    console.log('✅ Vercel deployment initiated:', vercelData);
+
+    const deployedUrl = `https://${repoName}.vercel.app`;
 
     return NextResponse.json({
       success: true,
-      url: `https://${name.toLowerCase().replace(/\s+/g, '-')}.vercel.app`,
-      stripeUrl: 'https://dashboard.stripe.com/test/products',
-      supabaseUrl: 'https://app.supabase.com/project/your-project',
-      message: 'SaaS generated successfully! (This is a mock response for now)',
+      url: deployedUrl,
+      githubUrl: repo.html_url,
+      stripeUrl: null, // TODO: Add Stripe integration
+      supabaseUrl: supabaseUrl,
+      message: 'SaaS deployed successfully!',
     });
 
-  } catch (error) {
-    console.error('Generation error:', error);
+  } catch (error: any) {
+    console.error('❌ Generation error:', error);
     return NextResponse.json(
-      { error: 'Failed to generate SaaS' },
+      { 
+        error: error.message || 'Failed to generate SaaS',
+        details: error.response?.data || error.toString(),
+      },
       { status: 500 }
     );
   }
+}
+
+function generateSaaSBoilerplate(name: string, description: string, price: string) {
+  // Basic Next.js SaaS template
+  return {
+    'package.json': JSON.stringify({
+      name: name.toLowerCase().replace(/\s+/g, '-'),
+      version: '0.1.0',
+      private: true,
+      scripts: {
+        dev: 'next dev',
+        build: 'next build',
+        start: 'next start',
+      },
+      dependencies: {
+        next: '15.1.6',
+        react: '^19',
+        'react-dom': '^19',
+      },
+      devDependencies: {
+        '@types/node': '^20',
+        '@types/react': '^19',
+        '@types/react-dom': '^19',
+        typescript: '^5',
+      },
+    }, null, 2),
+
+    'next.config.ts': `import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {};
+
+export default nextConfig;
+`,
+
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: {
+        target: 'ES2017',
+        lib: ['dom', 'dom.iterable', 'esnext'],
+        allowJs: true,
+        skipLibCheck: true,
+        strict: true,
+        noEmit: true,
+        esModuleInterop: true,
+        module: 'esnext',
+        moduleResolution: 'bundler',
+        resolveJsonModule: true,
+        isolatedModules: true,
+        jsx: 'preserve',
+        incremental: true,
+        plugins: [{ name: 'next' }],
+        paths: { '@/*': ['./src/*'] },
+      },
+      include: ['next-env.d.ts', '**/*.ts', '**/*.tsx', '.next/types/**/*.ts'],
+      exclude: ['node_modules'],
+    }, null, 2),
+
+    'src/app/page.tsx': `export default function Home() {
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
+      <div className="text-center text-white p-8">
+        <h1 className="text-6xl font-bold mb-4">${name}</h1>
+        <p className="text-xl mb-8">${description}</p>
+        <p className="text-3xl font-semibold">\$${price}/month</p>
+        <button className="mt-8 px-8 py-4 bg-white text-blue-600 rounded-lg font-semibold hover:bg-gray-100 transition">
+          Get Started
+        </button>
+      </div>
+    </main>
+  );
+}
+`,
+
+    'src/app/layout.tsx': `import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "${name}",
+  description: "${description}",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+`,
+
+    'README.md': `# ${name}
+
+${description}
+
+## Pricing
+\$${price}/month
+
+## Getting Started
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+Built with LaunchKit 🚀
+`,
+  };
+}
+
+async function getSupabaseOrgId(): Promise<string> {
+  // Get the first organization ID from the user's account
+  const response = await fetch('https://api.supabase.com/v1/organizations', {
+    headers: {
+      Authorization: `Bearer ${SUPABASE_ACCESS_TOKEN}`,
+    },
+  });
+  
+  const orgs = await response.json();
+  if (orgs && orgs.length > 0) {
+    return orgs[0].id;
+  }
+  
+  throw new Error('No Supabase organization found');
+}
+
+function generateRandomPassword(): string {
+  return Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16);
 }
