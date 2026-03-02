@@ -14,15 +14,33 @@ export async function POST(request: Request) {
 
     // Step 1: Create GitHub repo
     console.log('📦 Creating GitHub repository...');
-    const repoName = name.toLowerCase().replace(/\s+/g, '-');
+    let repoName = name.toLowerCase().replace(/\s+/g, '-');
     const octokit = new Octokit({ auth: GITHUB_TOKEN });
     
-    const { data: repo } = await octokit.repos.createForAuthenticatedUser({
-      name: repoName,
-      description,
-      private: false,
-      auto_init: true,
-    });
+    let repo;
+    try {
+      const { data } = await octokit.repos.createForAuthenticatedUser({
+        name: repoName,
+        description,
+        private: false,
+        auto_init: true,
+      });
+      repo = data;
+    } catch (error: any) {
+      if (error.message?.includes('name already exists')) {
+        // Repo exists, add timestamp to make it unique
+        repoName = `${repoName}-${Date.now()}`;
+        const { data } = await octokit.repos.createForAuthenticatedUser({
+          name: repoName,
+          description,
+          private: false,
+          auto_init: true,
+        });
+        repo = data;
+      } else {
+        throw error;
+      }
+    }
     
     console.log('✅ GitHub repo created:', repo.html_url);
 
