@@ -116,7 +116,7 @@ export async function POST(request: Request) {
     console.log('🚢 Creating Vercel project...');
     
     // First, create a Vercel project
-    const vercelProject = await fetch('https://api.vercel.com/v10/projects', {
+    const vercelProject = await fetch('https://api.vercel.com/v9/projects', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${VERCEL_TOKEN}`,
@@ -125,42 +125,69 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         name: repoName,
         framework: 'nextjs',
-        gitRepository: {
-          type: 'github',
-          repo: `${GITHUB_USERNAME}/${repoName}`,
-        },
       }),
     });
 
     let deployedUrl = `https://${repoName}.vercel.app`;
+    let projectId = null;
     
     if (vercelProject.ok) {
       const projectData = await vercelProject.json();
+      projectId = projectData.id;
       console.log('✅ Vercel project created:', projectData);
       
-      // Trigger initial deployment
-      const vercelDeploy = await fetch('https://api.vercel.com/v13/deployments', {
+      // Link GitHub repository to the project
+      console.log('🔗 Linking GitHub repository...');
+      const linkRepo = await fetch(`https://api.vercel.com/v9/projects/${projectId}/link`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${VERCEL_TOKEN}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          name: repoName,
-          project: projectData.id,
-          target: 'production',
-          gitSource: {
-            type: 'github',
-            repo: `${GITHUB_USERNAME}/${repoName}`,
-            ref: 'main',
-          },
+          type: 'github',
+          repo: `${GITHUB_USERNAME}/${repoName}`,
+          gitBranch: 'main',
         }),
       });
-      
-      if (vercelDeploy.ok) {
-        const deployData = await vercelDeploy.json();
-        console.log('✅ Vercel deployment initiated');
-        deployedUrl = `https://${deployData.url}`;
+
+      if (linkRepo.ok) {
+        console.log('✅ GitHub repository linked');
+        
+        // Wait a moment for GitHub to sync
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Trigger initial deployment
+        console.log('🚀 Triggering deployment...');
+        const vercelDeploy = await fetch('https://api.vercel.com/v13/deployments', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${VERCEL_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: repoName,
+            project: projectId,
+            target: 'production',
+            gitSource: {
+              type: 'github',
+              repo: `${GITHUB_USERNAME}/${repoName}`,
+              ref: 'main',
+            },
+          }),
+        });
+        
+        if (vercelDeploy.ok) {
+          const deployData = await vercelDeploy.json();
+          console.log('✅ Vercel deployment initiated:', deployData);
+          deployedUrl = `https://${deployData.url}`;
+        } else {
+          const deployError = await vercelDeploy.json();
+          console.warn('⚠️  Deployment trigger failed:', deployError);
+        }
+      } else {
+        const linkError = await linkRepo.json();
+        console.warn('⚠️  GitHub link failed:', linkError);
       }
     } else {
       const errorData = await vercelProject.json();
@@ -211,9 +238,13 @@ function generateSaaSBoilerplate(name: string, description: string, price: strin
         'react-dom': '^19',
       },
       devDependencies: {
+        '@tailwindcss/postcss': '^4',
         '@types/node': '^20',
         '@types/react': '^19',
         '@types/react-dom': '^19',
+        autoprefixer: '^10',
+        postcss: '^8',
+        tailwindcss: '^4',
         typescript: '^5',
       },
     }, null, 2),
@@ -264,6 +295,7 @@ export default nextConfig;
 `,
 
     'src/app/layout.tsx': `import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "${name}",
@@ -281,6 +313,35 @@ export default function RootLayout({
     </html>
   );
 }
+`,
+
+    'src/app/globals.css': `@import "tailwindcss";`,
+
+    'tailwind.config.ts': `import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+export default config;
+`,
+
+    'postcss.config.mjs': `/** @type {import('postcss-load-config').Config} */
+const config = {
+  plugins: {
+    '@tailwindcss/postcss': {},
+  },
+};
+
+export default config;
 `,
 
     'README.md': `# ${name}
