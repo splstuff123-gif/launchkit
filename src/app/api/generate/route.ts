@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
+import { selectTemplate, generateTemplate } from '@/lib/templates';
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
 const GITHUB_USERNAME = process.env.GITHUB_USERNAME!;
@@ -46,7 +47,9 @@ export async function POST(request: Request) {
 
     // Step 2: Generate boilerplate code and push to repo
     console.log('📝 Generating code...');
-    const files = generateSaaSBoilerplate(name, description, price);
+    const templateType = selectTemplate(description);
+    console.log(`📋 Selected template: ${templateType}`);
+    const files = generateTemplate(templateType, name, description, price);
     
     // Push files to GitHub
     for (const [path, content] of Object.entries(files)) {
@@ -219,167 +222,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
-
-function generateSaaSBoilerplate(name: string, description: string, price: string) {
-  // Basic Next.js SaaS template
-  return {
-    'package.json': JSON.stringify({
-      name: name.toLowerCase().replace(/\s+/g, '-'),
-      version: '0.1.0',
-      private: true,
-      scripts: {
-        dev: 'next dev',
-        build: 'next build',
-        start: 'next start',
-      },
-      dependencies: {
-        next: '^16.1.6',
-        react: '^19',
-        'react-dom': '^19',
-      },
-      devDependencies: {
-        '@tailwindcss/postcss': '^4',
-        '@types/node': '^20',
-        '@types/react': '^19',
-        '@types/react-dom': '^19',
-        autoprefixer: '^10',
-        postcss: '^8',
-        tailwindcss: '^4',
-        typescript: '^5',
-      },
-    }, null, 2),
-
-    'next.config.ts': `import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {};
-
-export default nextConfig;
-`,
-
-    'tsconfig.json': JSON.stringify({
-      compilerOptions: {
-        target: 'ES2017',
-        lib: ['dom', 'dom.iterable', 'esnext'],
-        allowJs: true,
-        skipLibCheck: true,
-        strict: true,
-        noEmit: true,
-        esModuleInterop: true,
-        module: 'esnext',
-        moduleResolution: 'bundler',
-        resolveJsonModule: true,
-        isolatedModules: true,
-        jsx: 'preserve',
-        incremental: true,
-        plugins: [{ name: 'next' }],
-        paths: { '@/*': ['./src/*'] },
-      },
-      include: ['next-env.d.ts', '**/*.ts', '**/*.tsx', '.next/types/**/*.ts'],
-      exclude: ['node_modules'],
-    }, null, 2),
-
-    'src/app/page.tsx': `export default function Home() {
-  return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
-      <div className="text-center text-white p-8">
-        <h1 className="text-6xl font-bold mb-4">${name}</h1>
-        <p className="text-xl mb-8">${description}</p>
-        <p className="text-3xl font-semibold">\$${price}/month</p>
-        <button className="mt-8 px-8 py-4 bg-white text-blue-600 rounded-lg font-semibold hover:bg-gray-100 transition">
-          Get Started
-        </button>
-      </div>
-    </main>
-  );
-}
-`,
-
-    'src/app/layout.tsx': `import type { Metadata } from "next";
-import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "${name}",
-  description: "${description}",
-};
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
-`,
-
-    'src/app/globals.css': `@import "tailwindcss";`,
-
-    'tailwind.config.ts': `import type { Config } from "tailwindcss";
-
-const config: Config = {
-  content: [
-    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-};
-
-export default config;
-`,
-
-    'postcss.config.mjs': `/** @type {import('postcss-load-config').Config} */
-const config = {
-  plugins: {
-    '@tailwindcss/postcss': {},
-  },
-};
-
-export default config;
-`,
-
-    'README.md': `# ${name}
-
-${description}
-
-## Pricing
-\$${price}/month
-
-## Getting Started
-
-\`\`\`bash
-npm install
-npm run dev
-\`\`\`
-
-Built with LaunchKit 🚀
-`,
-  };
-}
-
-async function getSupabaseOrgId(): Promise<string> {
-  // Get the first organization ID from the user's account
-  const response = await fetch('https://api.supabase.com/v1/organizations', {
-    headers: {
-      Authorization: `Bearer ${SUPABASE_ACCESS_TOKEN}`,
-    },
-  });
-  
-  const orgs = await response.json();
-  if (orgs && orgs.length > 0) {
-    return orgs[0].id;
-  }
-  
-  throw new Error('No Supabase organization found');
-}
-
-function generateRandomPassword(): string {
-  return Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16);
 }
