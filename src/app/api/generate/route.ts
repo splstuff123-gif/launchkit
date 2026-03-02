@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
 import { selectTemplate, generateTemplate } from '@/lib/templates';
+import { createTursoDatabase, initializeTursoSchema } from '@/lib/database-turso';
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
 const GITHUB_USERNAME = process.env.GITHUB_USERNAME!;
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN!;
-const SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN!;
+const TURSO_TOKEN = process.env.TURSO_TOKEN!;
 
 export async function POST(request: Request) {
   try {
@@ -45,13 +46,35 @@ export async function POST(request: Request) {
     
     console.log('✅ GitHub repo created:', repo.html_url);
 
-    // Step 2: Generate boilerplate code and push to repo
+    // Step 2: Generate boilerplate code
     console.log('📝 Generating code...');
     const templateType = selectTemplate(description);
     console.log(`📋 Selected template: ${templateType}`);
     const files = generateTemplate(templateType, name, description, price);
     
-    // Push files to GitHub
+    // Step 3: Create Turso database
+    console.log('🗄️  Creating Turso database...');
+    let tursoConfig;
+    let tursoUrl = null;
+    
+    try {
+      tursoConfig = await createTursoDatabase(repoName, TURSO_TOKEN);
+      tursoUrl = `https://turso.tech/app/databases/${repoName}`;
+      console.log('✅ Turso database created:', tursoUrl);
+      
+      // Initialize database schema
+      const schemaFile = files['SCHEMA.sql'] as string;
+      if (schemaFile) {
+        await initializeTursoSchema(tursoConfig, schemaFile);
+        console.log('✅ Database schema initialized');
+      }
+    } catch (error) {
+      console.warn('⚠️  Turso database creation failed:', error);
+      console.log('User will need to create database manually');
+    }
+
+    // Step 4: Push files to GitHub
+    console.log('📦 Pushing code to GitHub...');
     for (const [path, content] of Object.entries(files)) {
       try {
         // Try to get the file first to see if it exists
@@ -85,37 +108,7 @@ export async function POST(request: Request) {
     
     console.log('✅ Code pushed to GitHub');
 
-    // Step 3: Create Supabase project
-    console.log('🗄️  Creating Supabase project...');
-    const supabaseProject = await fetch('https://api.supabase.com/v1/projects', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${SUPABASE_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: repoName,
-        organization_id: await getSupabaseOrgId(),
-        plan: 'free',
-        region: 'us-east-1',
-        db_pass: generateRandomPassword(),
-      }),
-    });
-
-    let supabaseData;
-    let supabaseUrl = null;
-    
-    if (supabaseProject.ok) {
-      supabaseData = await supabaseProject.json();
-      supabaseUrl = `https://app.supabase.com/project/${supabaseData.id}`;
-      console.log('✅ Supabase project created:', supabaseUrl);
-    } else {
-      console.warn('⚠️  Supabase project creation failed, continuing without it');
-      const errorData = await supabaseProject.json();
-      console.error('Supabase error:', errorData);
-    }
-
-    // Step 4: Create Vercel project and link to GitHub
+    // Step 5: Create Vercel project and link to GitHub
     console.log('🚢 Creating Vercel project...');
     
     // First, create a Vercel project
@@ -137,7 +130,32 @@ export async function POST(request: Request) {
     if (vercelProject.ok) {
       const projectData = await vercelProject.json();
       projectId = projectData.id;
-      console.log('✅ Vercel project created:', projectData);
+      console.log('✅ Vercel project created');
+      
+      // Set Turso environment variables if we have them
+      if (tursoConfig) {
+        console.log('🔧 Setting environment variables...');
+        const envVars = [
+          { key: 'TURSO_DATABASE_URL', value: tursoConfig.url, target: ['production', 'preview', 'development'] },
+          { key: 'TURSO_AUTH_TOKEN', value: tursoConfig.authToken, target: ['production', 'preview', 'development'], sensitive: true },
+        ];
+
+        for (const envVar of envVars) {
+          try {
+            await fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${VERCEL_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(envVar),
+            });
+          } catch (error) {
+            console.warn('⚠️  Failed to set env var:', envVar.key);
+          }
+        }
+        console.log('✅ Environment variables set');
+      }
       
       // Link GitHub repository to the project
       console.log('🔗 Linking GitHub repository...');
@@ -155,8 +173,7 @@ export async function POST(request: Request) {
       });
 
       if (linkRepo.ok) {
-        const linkData = await linkRepo.json();
-        console.log('✅ GitHub repository linked:', linkData);
+        console.log('✅ GitHub repository linked');
         
         // Wait a moment for GitHub to sync
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -183,7 +200,7 @@ export async function POST(request: Request) {
         
         if (vercelDeploy.ok) {
           const deployData = await vercelDeploy.json();
-          console.log('✅ Vercel deployment initiated:', deployData);
+          console.log('✅ Vercel deployment initiated');
           deployedUrl = `https://${deployData.url}`;
         } else {
           const deployError = await vercelDeploy.json();
@@ -207,9 +224,10 @@ export async function POST(request: Request) {
       url: deployedUrl,
       githubUrl: repo.html_url,
       vercelImportUrl: vercelImportUrl,
-      stripeUrl: null, // TODO: Add Stripe integration
-      supabaseUrl: supabaseUrl,
-      message: 'SaaS created! Click "Deploy to Vercel" to complete setup.',
+      tursoUrl: tursoUrl,
+      message: tursoConfig 
+        ? 'SaaS created successfully! Database is configured and ready.'
+        : 'SaaS created! Set up Turso database manually (see README).',
     });
 
   } catch (error: any) {
@@ -222,24 +240,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
-
-async function getSupabaseOrgId(): Promise<string> {
-  // Get the first organization ID from the user's account
-  const response = await fetch('https://api.supabase.com/v1/organizations', {
-    headers: {
-      Authorization: `Bearer ${SUPABASE_ACCESS_TOKEN}`,
-    },
-  });
-  
-  const orgs = await response.json();
-  if (orgs && orgs.length > 0) {
-    return orgs[0].id;
-  }
-  
-  throw new Error('No Supabase organization found');
-}
-
-function generateRandomPassword(): string {
-  return Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16);
 }
