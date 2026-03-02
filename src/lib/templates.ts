@@ -1,4 +1,5 @@
 // Smart template generator for different SaaS types
+import { generatePremiumTaskManager } from './templates-premium';
 
 export function selectTemplate(description: string): string {
   const desc = description.toLowerCase();
@@ -46,6 +47,10 @@ export function generateTemplate(templateType: string, name: string, description
 }
 
 function generateTaskManager(name: string, description: string, price: string) {
+  // Use premium template for task manager
+  return generatePremiumTaskManager(name, description, price);
+  
+  /* OLD TEMPLATE - REPLACED WITH PREMIUM VERSION
   return {
     'package.json': JSON.stringify({
       name: name.toLowerCase().replace(/\s+/g, '-'),
