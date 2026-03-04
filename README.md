@@ -49,6 +49,15 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+### 4. Verify Vercel + Turso Connection (optional)
+
+Open the LaunchKit home page, enable **Advanced**, and use the **Integrations** panel to test token connectivity:
+
+- Paste `VERCEL_TOKEN` and `TURSO_TOKEN` directly in the UI (kept in-memory on the page)
+- Or leave fields blank to test server-side `.env` tokens
+- Click **Test Vercel + Turso** to validate both providers before generating a SaaS
+
+
 ## 🎨 Features
 
 ### Current Templates

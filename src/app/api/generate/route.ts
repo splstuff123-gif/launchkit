@@ -11,6 +11,7 @@ const TURSO_TOKEN = process.env.TURSO_TOKEN!;
 
 export async function POST(request: Request) {
   try {
+    const startedAt = Date.now();
     const { name, description, price, requirements } = await request.json();
 
     console.log('🚀 Starting deployment:', { name, description, price, hasRequirements: !!requirements });
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
           .map(r => `- [${r.priority}] ${r.title}${r.description ? `: ${r.description}` : ''}`)
           .join('\n');
         effectiveDescription = `${description}\n\nAPPROVED REQUIREMENTS:\n${reqLines}`;
-      } catch (e) {
+      } catch {
         // If parsing fails, still include raw text
         effectiveDescription = `${description}\n\nAPPROVED REQUIREMENTS (raw):\n${String(requirements)}`;
       }
@@ -94,7 +95,11 @@ export async function POST(request: Request) {
 
     // Step 4: Push files to GitHub
     console.log('📦 Pushing code to GitHub...');
-    for (const [path, content] of Object.entries(files)) {
+    const fileEntries = Object.entries(files);
+    const failedFiles: string[] = [];
+    const maxParallelUploads = 6;
+
+    const uploadFile = async ([path, content]: [string, string]) => {
       try {
         // Try to get the file first to see if it exists
         let sha;
@@ -107,7 +112,7 @@ export async function POST(request: Request) {
           if ('sha' in existingFile) {
             sha = existingFile.sha;
           }
-        } catch (error) {
+        } catch {
           // File doesn't exist, that's fine
         }
 
@@ -116,16 +121,21 @@ export async function POST(request: Request) {
           repo: repoName,
           path,
           message: `Add ${path}`,
-          content: Buffer.from(content as string).toString('base64'),
+          content: Buffer.from(content).toString('base64'),
           ...(sha && { sha }),
         });
       } catch (error) {
         console.error(`Failed to create ${path}:`, error);
-        // Continue with other files
+        failedFiles.push(path);
       }
+    };
+
+    for (let i = 0; i < fileEntries.length; i += maxParallelUploads) {
+      const batch = fileEntries.slice(i, i + maxParallelUploads);
+      await Promise.all(batch.map((entry) => uploadFile(entry as [string, string])));
     }
     
-    console.log('✅ Code pushed to GitHub');
+    console.log(`✅ Code pushed to GitHub (${fileEntries.length - failedFiles.length}/${fileEntries.length} files)`);
 
     // Step 5: Create Vercel project and link to GitHub
     console.log('🚢 Creating Vercel project...');
@@ -169,7 +179,7 @@ export async function POST(request: Request) {
               },
               body: JSON.stringify(envVar),
             });
-          } catch (error) {
+          } catch {
             console.warn('⚠️  Failed to set env var:', envVar.key);
           }
         }
@@ -244,6 +254,11 @@ export async function POST(request: Request) {
       githubUrl: repo.html_url,
       vercelImportUrl: vercelImportUrl,
       tursoUrl: tursoUrl,
+      stats: {
+        totalFiles: fileEntries.length,
+        failedFiles,
+        durationMs: Date.now() - startedAt,
+      },
       message: tursoConfig 
         ? 'SaaS created successfully! Database is configured and ready.'
         : 'SaaS created! Set up Turso database manually (see README).',
