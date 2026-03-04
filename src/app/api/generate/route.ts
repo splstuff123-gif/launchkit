@@ -215,10 +215,10 @@ async function runGeneration(payload: { name: string; description: string; price
   setStep('Uploading project files to GitHub', 55);
 
   const fileEntries = Object.entries(files);
-  const failedFiles: string[] = [];
+  const failedFiles = new Set<string>();
   const maxParallelUploads = 6;
 
-  const uploadFile = async ([path, content]: [string, string]) => {
+  const uploadFile = async ([path, content]: [string, string], attempts = 3) => {
     try {
       let sha: string | undefined;
       try {
@@ -244,11 +244,15 @@ async function runGeneration(payload: { name: string; description: string; price
             content: Buffer.from(content).toString('base64'),
             ...(sha && { sha }),
           }),
-        3,
+        attempts,
         500
       );
+
+      failedFiles.delete(path);
+      return true;
     } catch {
-      failedFiles.push(path);
+      failedFiles.add(path);
+      return false;
     }
   };
 
@@ -257,9 +261,26 @@ async function runGeneration(payload: { name: string; description: string; price
     await Promise.all(batch.map((entry) => uploadFile(entry as [string, string])));
   }
 
-  const criticalMissing = CRITICAL_PATHS.filter((criticalPath) => files[criticalPath] && failedFiles.includes(criticalPath));
+  if (failedFiles.size > 0) {
+    const repairOrder = fileEntries
+      .filter(([path]) => failedFiles.has(path))
+      .sort(([a], [b]) => {
+        const aCritical = CRITICAL_PATHS.includes(a) ? 0 : 1;
+        const bCritical = CRITICAL_PATHS.includes(b) ? 0 : 1;
+        return aCritical - bCritical;
+      });
+
+    for (const entry of repairOrder) {
+      await uploadFile(entry as [string, string], 5);
+    }
+  }
+
+  const failedFilesList = Array.from(failedFiles);
+  const criticalMissing = CRITICAL_PATHS.filter((criticalPath) => files[criticalPath] && failedFilesList.includes(criticalPath));
   if (criticalMissing.length > 0) {
-    throw new Error(`Generation failed quality gate. Critical files failed to upload: ${criticalMissing.join(', ')}`);
+    throw new Error(
+      `Generation failed quality gate. Critical files failed to upload after repair pass: ${criticalMissing.join(', ')}`
+    );
   }
 
   setStep('Deploying on Vercel', 75);
@@ -376,7 +397,7 @@ async function runGeneration(payload: { name: string; description: string; price
   });
 
   const remediation = [
-    ...(failedFiles.length > 0
+    ...(failedFilesList.length > 0
       ? [`Retry file upload in generated repo: git add . && git commit -m "fix" && git push`] : []),
     ...(!verification.checks.checkoutSession
       ? ['Set STRIPE_SECRET_KEY and STRIPE_PRICE_ID in Vercel project env, then redeploy']
@@ -397,7 +418,7 @@ async function runGeneration(payload: { name: string; description: string; price
     tursoUrl,
     stats: {
       totalFiles: fileEntries.length,
-      failedFiles,
+      failedFiles: failedFilesList,
       durationMs: Date.now() - startedAt,
     },
     verification,
