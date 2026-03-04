@@ -118,16 +118,122 @@ export async function POST(request: Request) {
   }
 }
 `,
-    'src/app/billing/page.tsx': `export default function BillingPage() {
+    'src/app/billing/page.tsx': `'use client';
+
+import { useMemo, useState } from 'react';
+
+export default function BillingPage() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const features = useMemo(
+    () => [
+      'Unlimited projects and workspaces',
+      'Advanced automation and reminders',
+      'Role-based access and audit history',
+      'Priority support and launch consulting',
+    ],
+    []
+  );
+
+  const handleCheckout = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/billing/checkout', { method: 'POST' });
+      const data = await response.json();
+
+      if (!response.ok || !data?.url) {
+        throw new Error(data?.error || 'Unable to create checkout session');
+      }
+
+      window.location.href = data.url;
+    } catch (checkoutError: unknown) {
+      const message = checkoutError instanceof Error ? checkoutError.message : 'Checkout failed';
+      setError(message);
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <main className="min-h-screen p-8 bg-slate-950 text-white">
-      <h1 className="text-3xl font-bold mb-4">Billing & Plans</h1>
-      <p className="text-slate-300 mb-6">${profileLabel} default pricing for ${name}: $${price}/month.</p>
-      <form action="/api/billing/checkout" method="post">
-        <button className="px-5 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 font-semibold" type="submit">
-          Upgrade to Pro
-        </button>
-      </form>
+    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+      <div className="mx-auto grid max-w-6xl gap-8 px-6 py-16 md:grid-cols-2">
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl">
+          <p className="mb-3 inline-flex rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-300">
+            Revenue plan
+          </p>
+          <h1 className="mb-3 text-4xl font-bold">${name} Pro</h1>
+          <p className="mb-6 text-slate-300">${profileLabel} pricing optimized for conversion and retention.</p>
+
+          <div className="mb-6 flex items-end gap-2">
+            <span className="text-5xl font-bold">$${price}</span>
+            <span className="pb-1 text-slate-400">/month</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCheckout}
+            disabled={isLoading}
+            className="w-full rounded-xl bg-blue-600 px-5 py-3 text-base font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isLoading ? 'Redirecting to secure checkout…' : 'Start 14-day free trial'}
+          </button>
+
+          {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
+
+          <p className="mt-4 text-xs text-slate-400">No contract • Cancel anytime • Test mode ready for Stripe</p>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-8">
+          <h2 className="mb-4 text-xl font-semibold">What teams get on day one</h2>
+          <ul className="space-y-3 text-slate-200">
+            {features.map((feature) => (
+              <li key={feature} className="flex items-start gap-3">
+                <span className="mt-0.5 text-emerald-400">✓</span>
+                <span>{feature}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-8 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-300">
+            <p className="font-semibold text-white">Activation checklist</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Connect Stripe keys in deployment environment.</li>
+              <li>Verify <code>/api/ready</code> returns <code>{'{ ok: true }'}</code>.</li>
+              <li>Run smoke checks and complete onboarding flow.</li>
+            </ol>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+`,
+    'src/app/onboarding/page.tsx': `export default function OnboardingPage() {
+  const steps = [
+    { title: 'Connect your workspace', detail: 'Invite teammates and set permissions in under 2 minutes.' },
+    { title: 'Import your first data set', detail: 'Use CSV import or API sync to populate your dashboard quickly.' },
+    { title: 'Launch billing', detail: 'Enable Stripe, confirm plans, and validate checkout conversion.' },
+  ];
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-white">
+      <div className="mx-auto max-w-4xl px-6 py-16">
+        <p className="mb-2 text-sm uppercase tracking-wider text-blue-300">First-run UX</p>
+        <h1 className="mb-3 text-4xl font-bold">Welcome to ${name}</h1>
+        <p className="mb-10 text-slate-300">A guided onboarding flow designed to reduce time-to-value and improve paid conversion.</p>
+
+        <div className="space-y-4">
+          {steps.map((step, index) => (
+            <section key={step.title} className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+              <p className="text-xs font-semibold text-blue-300">Step {index + 1}</p>
+              <h2 className="mt-1 text-xl font-semibold">{step.title}</h2>
+              <p className="mt-2 text-slate-300">{step.detail}</p>
+            </section>
+          ))}
+        </div>
+      </div>
     </main>
   );
 }
@@ -171,6 +277,7 @@ for (const path of checks) {
 console.log('Smoke checks passed');
 `,
     '.github/workflows/ci.yml': `name: CI\n\non:\n  push:\n    branches: [ main ]\n  pull_request:\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '20'\n      - run: npm ci\n      - run: npm run lint\n      - run: npm run build\n`,
+    'UX_PLAYBOOK.md': `# UX / Conversion Playbook\n\nUse this generated product as a starting point for a high-converting SaaS UX:\n\n## Core UX principles\n- Keep first-value time under 5 minutes (guided onboarding + sample data).\n- Always show a next-best action on empty states.\n- Surface trust signals before the paywall (uptime, support SLA, testimonials).\n- Keep billing transparent with one clear primary CTA and low-friction trial copy.\n\n## Recommended experiments\n1. Add role-specific onboarding paths (founder, operator, analyst).\n2. A/B test CTA copy on pricing and empty-state buttons.\n3. Add event tracking for: onboarding_started, onboarding_completed, checkout_started, checkout_completed.\n4. Build win-back nudges for trial users with no activation in 48h.\n\n## Accessibility checklist\n- Ensure all forms have labels and keyboard focus styles.\n- Keep color contrast WCAG AA for body text and actionable controls.\n- Provide non-color status indicators for success/error states.\n`,
     'LAUNCH_CHECKLIST.md': `# Launch Checklist\n\n- [ ] Configure Stripe env vars (STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET)\n- [ ] Configure Turso env vars (TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)\n- [ ] Run smoke checks (npm run test:smoke)\n- [ ] Verify /api/ready returns ok: true\n- [ ] Confirm billing checkout works in Stripe test mode\n`,
     'PRIVACY.md': `# Privacy Policy\n\nThis generated product includes a default privacy policy template. Replace with counsel-approved policy before production launch.\n`,
     'TERMS.md': `# Terms of Service\n\nThis generated product includes a default terms template. Replace with counsel-approved terms before production launch.\n`,
