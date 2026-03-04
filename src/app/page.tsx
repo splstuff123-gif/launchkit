@@ -135,6 +135,8 @@ export default function Home() {
     e.preventDefault();
     setIsGenerating(true);
 
+    let startedAsyncPolling = false;
+
     try {
       const payload: Record<string, unknown> = { ...formData, async: asyncMode };
       if (advanced) {
@@ -152,6 +154,7 @@ export default function Home() {
       const data = await response.json();
 
       if (asyncMode && data.jobId) {
+        startedAsyncPolling = true;
         setJobId(data.jobId);
 
         const poll = async () => {
@@ -181,7 +184,7 @@ export default function Home() {
       console.error('Generation failed:', error);
       setResult({ error: 'Failed to generate SaaS' });
     } finally {
-      if (!asyncMode) {
+      if (!startedAsyncPolling) {
         setIsGenerating(false);
       }
     }
