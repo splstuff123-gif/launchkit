@@ -3,6 +3,16 @@ import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
 type RequirementPriority = 'must' | 'should' | 'could';
 
+type RequirementItem = {
+  id: string;
+  priority: RequirementPriority;
+  title: string;
+  description: string;
+  sourceSnippet?: string;
+  acceptanceCriteria?: string[];
+  businessImpact?: string;
+};
+
 type ProductSpec = {
   version: 2;
   productName: string;
@@ -15,12 +25,7 @@ type ProductSpec = {
     plans: string[];
   };
   analyticsEvents: string[];
-  requirements: Array<{
-    id: string;
-    priority: RequirementPriority;
-    title: string;
-    description: string;
-  }>;
+  requirements: RequirementItem[];
   correlation?: {
     matchedSignals: string[];
     missingSignals: string[];
@@ -95,36 +100,51 @@ function extractSignals(description: string): DescriptionSignals {
   return { domain, actors, capabilities, integrations, monetizationHints, analyticsHints };
 }
 
-
 function splitDescriptionHighlights(description: string): string[] {
-  const parts = description
-    .split(/[.!?\n]+/)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 8);
-
-  return unique(parts).slice(0, 5);
+  return unique(
+    description
+      .split(/[.!?\n]+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 8)
+  ).slice(0, 5);
 }
 
-function deriveExecutionNotes(description: string, signals: DescriptionSignals): string[] {
-  const highlights = splitDescriptionHighlights(description);
-
-  const notes = [
-    ...highlights.map((h, i) => `Description focus ${i + 1}: ${h}`),
-    signals.capabilities.length
-      ? `Capability emphasis: ${signals.capabilities.join(', ')}`
-      : 'Capability emphasis: core workflow execution and fast time-to-value',
-    signals.integrations.length
-      ? `Integration emphasis: ${signals.integrations.join(', ')}`
-      : 'Integration emphasis: keep provider interfaces pluggable',
+function buildAcceptanceCriteria(title: string, snippet: string, signals: DescriptionSignals): string[] {
+  const criteria = [
+    `Given the scenario "${snippet}", the ${title.toLowerCase()} flow completes without manual workarounds.`,
+    'The flow has clear happy-path and failure-state handling with user-facing feedback.',
+    'The flow is covered by at least one integration/smoke verification path.',
   ];
 
-  return notes.slice(0, 8);
+  if (signals.integrations.length > 0) {
+    criteria.push(`Required integrations for this flow are configurable: ${signals.integrations.join(', ')}.`);
+  }
+
+  return criteria.slice(0, 4);
+}
+
+function enrichRequirements(requirements: RequirementItem[], description: string, signals: DescriptionSignals): RequirementItem[] {
+  const highlights = splitDescriptionHighlights(description);
+  return requirements.map((req, idx) => {
+    const snippet = highlights[idx % Math.max(highlights.length, 1)] || description;
+    return {
+      ...req,
+      sourceSnippet: req.sourceSnippet || snippet,
+      acceptanceCriteria: req.acceptanceCriteria?.length
+        ? req.acceptanceCriteria
+        : buildAcceptanceCriteria(req.title, snippet, signals),
+      businessImpact:
+        req.businessImpact ||
+        (req.priority === 'must'
+          ? 'Critical for launch viability and revenue capture.'
+          : 'Improves activation, retention, and operational confidence.'),
+    };
+  });
 }
 
 function inferSpec(name: string, description: string): ProductSpec {
   const signals = extractSignals(description);
   const highlights = splitDescriptionHighlights(description);
-  const executionNotes = deriveExecutionNotes(description, signals);
 
   const userRoles = signals.actors.length
     ? signals.actors
@@ -156,36 +176,36 @@ function inferSpec(name: string, description: string): ProductSpec {
         ? 'one_time'
         : 'subscription';
 
-  const requirements: ProductSpec['requirements'] = [
+  const requirements: RequirementItem[] = [
     {
       id: '1',
       priority: 'must',
       title: 'Description-aligned core workflow',
-      description: `Implement the core user journey described as: "${description}" and make it the default path after onboarding. Explicitly cover: ${highlights.join(" | ") || "primary value journey"}.`,
+      description: `Implement the core user journey described as: "${description}". Explicitly cover: ${highlights.join(' | ') || 'primary value journey'}.`,
     },
     {
       id: '2',
       priority: 'must',
       title: 'Authentication and role-based access',
-      description: `Support role-aware access for: ${userRoles.join(', ')}. Include signup/login/session handling.`,
+      description: `Support role-aware access for: ${userRoles.join(', ')} and align permissions to prompt capabilities: ${signals.capabilities.join(', ') || 'authentication, onboarding'}.`,
     },
     {
       id: '3',
       priority: 'must',
       title: 'Data model that matches domain',
-      description: `Implement entities and CRUD flows for: ${entities.map((e) => e.name).join(', ')}.`,
+      description: `Implement entities and CRUD flows for: ${entities.map((e) => e.name).join(', ')} with statuses matching prompt behavior.`,
     },
     {
       id: '4',
       priority: 'must',
       title: 'Monetization implementation',
-      description: `Implement ${monetizationModel} billing with checkout, webhook handling, and plan/entitlement checks. Monetization cues from prompt: ${signals.monetizationHints.join(", ") || "subscription"}.`,
+      description: `Implement ${monetizationModel} billing with checkout, webhook handling, and entitlement checks. Prompt monetization cues: ${signals.monetizationHints.join(', ') || 'subscription'}.`,
     },
     {
       id: '5',
       priority: 'should',
       title: 'Activation and analytics instrumentation',
-      description: `Track key lifecycle events for activation and conversion${signals.analyticsHints.length ? ` (${signals.analyticsHints.join(', ')})` : ''}.`,
+      description: `Track lifecycle events for activation/conversion${signals.analyticsHints.length ? ` (${signals.analyticsHints.join(', ')})` : ''}.`,
     },
     {
       id: '6',
@@ -220,7 +240,8 @@ function inferSpec(name: string, description: string): ProductSpec {
     ...signals.analyticsHints,
   ]);
 
-  const reqText = requirements.map((r) => `${r.title} ${r.description}`.toLowerCase()).join(' ');
+  const enriched = enrichRequirements(requirements, description, signals);
+  const reqText = enriched.map((r) => `${r.title} ${r.description} ${r.sourceSnippet ?? ''}`).join(' ').toLowerCase();
   const matchedSignals = allSignals.filter((signal) => reqText.includes(signal.split(' ')[0] || signal));
   const missingSignals = allSignals.filter((signal) => !matchedSignals.includes(signal));
   const coverageScore = allSignals.length === 0 ? 100 : Math.round((matchedSignals.length / allSignals.length) * 100);
@@ -235,20 +256,20 @@ function inferSpec(name: string, description: string): ProductSpec {
       'User onboarding and authentication',
       'Primary value-delivery workflow from product description',
       'Billing and access control lifecycle',
-      ...executionNotes.slice(0, 3),
+      ...splitDescriptionHighlights(description).map((h, i) => `Description focus ${i + 1}: ${h}`).slice(0, 2),
     ],
     monetization: {
       model: monetizationModel,
       plans: ['Starter', 'Pro'],
     },
     analyticsEvents: ['signup_completed', 'activation_completed', 'checkout_started', 'checkout_completed'],
-    requirements,
+    requirements: enriched,
     correlation: { matchedSignals, missingSignals, coverageScore },
   };
 }
 
-async function inferSpecWithLLM(name: string, description: string): Promise<ProductSpec | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
+async function inferSpecWithLLM(name: string, description: string, openAiKey?: string): Promise<ProductSpec | null> {
+  const apiKey = openAiKey?.trim() || process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
   try {
@@ -295,33 +316,41 @@ function normalizeAndCorrelate(spec: ProductSpec, name: string, description: str
     entities: spec.entities?.length ? spec.entities : inferred.entities,
     userRoles: spec.userRoles?.length ? spec.userRoles : inferred.userRoles,
     workflows: spec.workflows?.length ? spec.workflows : inferred.workflows,
-    monetization: spec.monetization?.model
-      ? spec.monetization
-      : inferred.monetization,
+    monetization: spec.monetization?.model ? spec.monetization : inferred.monetization,
     analyticsEvents: spec.analyticsEvents?.length ? spec.analyticsEvents : inferred.analyticsEvents,
     requirements: spec.requirements?.length ? spec.requirements : inferred.requirements,
   };
 
-  const reqText = normalized.requirements.map((r) => `${r.title} ${r.description}`.toLowerCase()).join(' ');
+  const signals = extractSignals(description);
+  normalized.requirements = enrichRequirements(normalized.requirements, description, signals);
+
+  const reqText = normalized.requirements
+    .map((r) => `${r.title} ${r.description} ${r.sourceSnippet ?? ''}`.toLowerCase())
+    .join(' ');
   const signalCandidates = unique([
-    ...extractSignals(description).capabilities,
-    ...extractSignals(description).integrations,
-    ...extractSignals(description).monetizationHints,
-    ...extractSignals(description).analyticsHints,
+    ...signals.capabilities,
+    ...signals.integrations,
+    ...signals.monetizationHints,
+    ...signals.analyticsHints,
   ]);
+
   const matchedSignals = signalCandidates.filter((signal) => reqText.includes(signal.split(' ')[0] || signal));
   const missingSignals = signalCandidates.filter((signal) => !matchedSignals.includes(signal));
 
   if (missingSignals.length > 0) {
-    normalized.requirements = [
-      ...normalized.requirements,
-      {
-        id: `auto-${normalized.requirements.length + 1}`,
-        priority: 'should',
-        title: 'Prompt-correlation gap closure',
-        description: `Add explicit support for missing prompt signals: ${missingSignals.join(', ')}.`,
-      },
-    ];
+    normalized.requirements = enrichRequirements(
+      [
+        ...normalized.requirements,
+        {
+          id: `auto-${normalized.requirements.length + 1}`,
+          priority: 'should',
+          title: 'Prompt-correlation gap closure',
+          description: `Add explicit support for missing prompt signals: ${missingSignals.join(', ')}.`,
+        },
+      ],
+      description,
+      signals
+    );
   }
 
   normalized.correlation = {
@@ -352,7 +381,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { name, description } = await request.json();
+    const { name, description, openAiKey } = await request.json();
 
     if (!description) {
       return NextResponse.json({ error: 'Missing description' }, { status: 400 });
@@ -361,7 +390,7 @@ export async function POST(request: Request) {
     const safeName = String(name || '');
     const safeDescription = String(description || '');
 
-    const llmSpec = await inferSpecWithLLM(safeName, safeDescription);
+    const llmSpec = await inferSpecWithLLM(safeName, safeDescription, openAiKey ? String(openAiKey) : undefined);
     let spec = normalizeAndCorrelate(llmSpec || inferSpec(safeName, safeDescription), safeName, safeDescription);
 
     let errors = validateSpec(spec);

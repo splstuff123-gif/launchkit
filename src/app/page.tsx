@@ -2,7 +2,25 @@
 
 import { useMemo, useState } from 'react';
 
-import type { RequirementsDoc } from '@/lib/requirements';
+type RequirementDocView = {
+  version: number;
+  productName: string;
+  productDescription: string;
+  correlation?: {
+    matchedSignals: string[];
+    missingSignals: string[];
+    coverageScore: number;
+  };
+  requirements: Array<{
+    id: string;
+    priority: 'must' | 'should' | 'could';
+    title: string;
+    description?: string;
+    sourceSnippet?: string;
+    acceptanceCriteria?: string[];
+    businessImpact?: string;
+  }>;
+};
 
 export default function Home() {
   const [formData, setFormData] = useState({
@@ -14,7 +32,7 @@ export default function Home() {
   const [advanced, setAdvanced] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isReqGenerating, setIsReqGenerating] = useState(false);
-  const [requirementsDoc, setRequirementsDoc] = useState<RequirementsDoc | null>(null);
+  const [requirementsDoc, setRequirementsDoc] = useState<RequirementDocView | null>(null);
   const [requirementsText, setRequirementsText] = useState('');
 
   type GenerateResponse = {
@@ -65,6 +83,7 @@ export default function Home() {
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [vercelToken, setVercelToken] = useState('');
   const [tursoToken, setTursoToken] = useState('');
+  const [openAiKey, setOpenAiKey] = useState('');
   const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<{
     vercel: IntegrationStatus;
@@ -92,7 +111,11 @@ export default function Home() {
       const response = await fetch('/api/requirements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: formData.name, description: formData.description }),
+        body: JSON.stringify({
+          name: formData.name,
+          description: formData.description,
+          ...(openAiKey.trim() ? { openAiKey: openAiKey.trim() } : {}),
+        }),
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
@@ -334,6 +357,18 @@ export default function Home() {
                       </div>
                     </div>
 
+                    <div>
+                      <label htmlFor="openAiKey" className="mb-2 block text-sm font-medium text-gray-300">OpenAI API Key (optional for richer requirements)</label>
+                      <input
+                        id="openAiKey"
+                        type="password"
+                        value={openAiKey}
+                        onChange={(e) => setOpenAiKey(e.target.value)}
+                        placeholder="sk-..."
+                        className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
                     <div className="flex items-center justify-between gap-4">
                       <button
                         type="button"
@@ -387,8 +422,37 @@ export default function Home() {
                   />
 
                   {requirementsDoc && (
-                    <div className="text-xs text-gray-400">
-                      Draft generated from your description. You can edit freely before deploying.
+                    <div className="space-y-3">
+                      <div className="text-xs text-gray-400">
+                        Draft generated from your description. You can edit freely before deploying.
+                      </div>
+
+                      {requirementsDoc.correlation && (
+                        <div className="rounded-lg border border-gray-700 bg-gray-950/50 p-3 text-xs">
+                          <p className="font-semibold text-gray-200">Prompt correlation score: <span className={requirementsDoc.correlation.coverageScore >= 80 ? 'text-green-400' : 'text-yellow-300'}>{requirementsDoc.correlation.coverageScore}%</span></p>
+                          <p className="mt-1 text-gray-400">Matched: {requirementsDoc.correlation.matchedSignals.join(', ') || 'None'}</p>
+                          {requirementsDoc.correlation.missingSignals.length > 0 && (
+                            <p className="mt-1 text-yellow-300">Missing signals: {requirementsDoc.correlation.missingSignals.join(', ')}</p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                        {requirementsDoc.requirements.slice(0, 5).map((req) => (
+                          <div key={req.id} className="rounded-lg border border-gray-700 bg-gray-950/40 p-3 text-xs text-gray-300">
+                            <p className="font-semibold text-gray-100">{req.title}</p>
+                            {req.sourceSnippet && <p className="mt-1 text-gray-400">Source: {req.sourceSnippet}</p>}
+                            {req.businessImpact && <p className="mt-1 text-emerald-300">Impact: {req.businessImpact}</p>}
+                            {req.acceptanceCriteria && req.acceptanceCriteria.length > 0 && (
+                              <ul className="mt-1 list-disc pl-5 text-gray-400">
+                                {req.acceptanceCriteria.slice(0, 2).map((criterion) => (
+                                  <li key={criterion}>{criterion}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
