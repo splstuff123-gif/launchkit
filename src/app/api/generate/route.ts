@@ -44,10 +44,19 @@ type DeploymentVerification = {
   errors: string[];
 };
 
-async function checkJsonOk(url: string) {
+async function checkJsonOk(url: string, expectedOkField = true) {
   const response = await fetch(url);
   if (!response.ok) return false;
-  return true;
+
+  try {
+    const data = await response.json();
+    if (expectedOkField && typeof data.ok === 'boolean') {
+      return data.ok;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function checkHtmlOk(url: string, expectedText?: string) {
@@ -60,7 +69,14 @@ async function checkHtmlOk(url: string, expectedText?: string) {
 
 async function checkCheckout(url: string) {
   const response = await fetch(url, { method: 'POST' });
-  return response.ok;
+  if (!response.ok) return false;
+
+  try {
+    const data = await response.json();
+    return Boolean(data.ok);
+  } catch {
+    return false;
+  }
 }
 
 async function verifyDeployment(baseUrl: string): Promise<DeploymentVerification> {
@@ -129,7 +145,7 @@ async function runGeneration(payload: { name: string; description: string; price
     if (jobId) updateJob(jobId, { status: 'running', step, progress });
   };
 
-  trackEvent('generation_started', { name });
+  await trackEvent('generation_started', { name });
   setStep('Creating GitHub repository', 10);
 
   let repoName = name.toLowerCase().replace(/\s+/g, '-');
@@ -171,7 +187,7 @@ async function runGeneration(payload: { name: string; description: string; price
         .map((r) => `- [${r.priority}] ${r.title}${r.description ? `: ${r.description}` : ''}`)
         .join('\n');
       effectiveDescription = `${description}\n\nAPPROVED REQUIREMENTS:\n${reqLines}`;
-      trackEvent('requirements_accepted', { name, requirementCount: doc.requirements.length });
+      await trackEvent('requirements_accepted', { name, requirementCount: doc.requirements.length });
     } catch {
       effectiveDescription = `${description}\n\nAPPROVED REQUIREMENTS (raw):\n${String(requirements)}`;
     }
@@ -371,7 +387,7 @@ async function runGeneration(payload: { name: string; description: string; price
   ];
 
   setStep('Completed', 100);
-  trackEvent('generation_completed', { name, passedVerification: verification.passed, score: revenueReadiness.score });
+  await trackEvent('generation_completed', { name, passedVerification: verification.passed, score: revenueReadiness.score });
 
   return {
     success: true,
@@ -417,7 +433,7 @@ export async function POST(request: Request) {
   try {
     const payload = await request.json();
 
-    trackEvent('idea_submitted', { name: payload.name });
+    await trackEvent('idea_submitted', { name: payload.name });
 
     if (payload?.async === true) {
       const job = createJob();
@@ -426,12 +442,12 @@ export async function POST(request: Request) {
       void runGeneration(payload, job.id)
         .then((result) => {
           updateJob(job.id, { status: 'succeeded', progress: 100, step: 'Completed', result });
-          trackEvent('deployment_success', { jobId: job.id, url: result.url as string });
+          void trackEvent('deployment_success', { jobId: job.id, url: result.url as string });
         })
         .catch((error: unknown) => {
           const msg = error instanceof Error ? error.message : 'Generation failed';
           updateJob(job.id, { status: 'failed', progress: 100, step: 'Failed', error: msg });
-          trackEvent('generation_failed', { jobId: job.id, error: msg });
+          void trackEvent('generation_failed', { jobId: job.id, error: msg });
         });
 
       return NextResponse.json({ success: true, async: true, jobId: job.id });

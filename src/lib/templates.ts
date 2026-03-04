@@ -15,6 +15,7 @@ function applyAdvancedProductionPack(files: FileMap, name: string, price: string
     ...(packageJson.scripts || {}),
     lint: 'eslint',
     'test:smoke': 'node scripts/smoke-check.mjs',
+    'test:ci': 'npm run lint && npm run build && npm run test:smoke',
   };
 
   const profileLabel = profile === 'b2b' ? 'B2B SaaS' : profile === 'creator' ? 'Creator SaaS' : 'Marketplace SaaS';
@@ -70,10 +71,36 @@ export async function POST() {
 }
 `,
     'src/app/api/billing/webhook/route.ts': `import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
 
-export async function POST() {
-  // Placeholder lifecycle hook. Extend to persist subscription state.
-  return NextResponse.json({ received: true });
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-07-30.basil' })
+  : null;
+
+export async function POST(request: Request) {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return NextResponse.json({ received: false, error: 'Webhook env vars missing' }, { status: 500 });
+  }
+
+  const payload = await request.text();
+  const signature = request.headers.get('stripe-signature');
+
+  if (!signature) {
+    return NextResponse.json({ received: false, error: 'Missing signature' }, { status: 400 });
+  }
+
+  try {
+    const event = stripe.webhooks.constructEvent(payload, signature, process.env.STRIPE_WEBHOOK_SECRET);
+
+    // Minimal lifecycle handling scaffold
+    if (event.type === 'checkout.session.completed' || event.type === 'invoice.payment_succeeded') {
+      // TODO: persist subscription state in DB
+    }
+
+    return NextResponse.json({ received: true, type: event.type });
+  } catch {
+    return NextResponse.json({ received: false, error: 'Invalid signature' }, { status: 400 });
+  }
 }
 `,
     'src/app/billing/page.tsx': `export default function BillingPage() {
