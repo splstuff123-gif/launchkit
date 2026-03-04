@@ -23,9 +23,56 @@ export default function Home() {
     stripeUrl?: string;
     supabaseUrl?: string;
     vercelImportUrl?: string;
+    verification?: {
+      passed: boolean;
+      checks: {
+        homepage: boolean;
+        healthEndpoint: boolean;
+        dbRoundtrip: boolean;
+        authFlow: boolean;
+        pricingPage: boolean;
+        checkoutSession: boolean;
+      };
+      errors: string[];
+      pending?: boolean;
+    };
+    revenueReadiness?: {
+      score: number;
+      checks: {
+        billing: boolean;
+        authentication: boolean;
+        database: boolean;
+        deployment: boolean;
+        onboarding: boolean;
+        analytics: boolean;
+      };
+    };
+    stats?: {
+      totalFiles: number;
+      failedFiles: string[];
+      durationMs: number;
+    };
+    remediation?: string[];
+    vercelLinkedRepo?: boolean;
+    manualImportRequired?: boolean;
+  };
+
+  type IntegrationStatus = {
+    connected: boolean;
+    error?: string;
   };
 
   const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [vercelToken, setVercelToken] = useState('');
+  const [tursoToken, setTursoToken] = useState('');
+  const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    vercel: IntegrationStatus;
+    turso: IntegrationStatus;
+  } | null>(null);
+
+  const [asyncMode, setAsyncMode] = useState(true);
+  const [jobId, setJobId] = useState<string | null>(null);
 
   const generateRequirements = async () => {
     setIsReqGenerating(true);
@@ -56,14 +103,46 @@ export default function Home() {
     }
   };
 
+
+  const testIntegrations = async () => {
+    setIsTestingIntegrations(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vercelToken, tursoToken }),
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      setIntegrationStatus({
+        vercel: data.vercel,
+        turso: data.turso,
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Failed to test integrations';
+      setResult({ error: msg });
+      setIntegrationStatus(null);
+    } finally {
+      setIsTestingIntegrations(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGenerating(true);
 
+    let startedAsyncPolling = false;
+
     try {
-      const payload: Record<string, unknown> = { ...formData };
+      const payload: Record<string, unknown> = { ...formData, async: asyncMode };
       if (advanced) {
         payload.requirements = requirementsText;
+        if (vercelToken.trim()) payload.vercelToken = vercelToken.trim();
+        if (tursoToken.trim()) payload.tursoToken = tursoToken.trim();
       }
 
       const response = await fetch('/api/generate', {
@@ -73,12 +152,41 @@ export default function Home() {
       });
 
       const data = await response.json();
-      setResult(data);
+
+      if (asyncMode && data.jobId) {
+        startedAsyncPolling = true;
+        setJobId(data.jobId);
+
+        const poll = async () => {
+          const statusRes = await fetch(`/api/generate?jobId=${data.jobId}`);
+          const statusData = await statusRes.json();
+
+          if (statusData.status === 'succeeded') {
+            setResult(statusData.result);
+            setIsGenerating(false);
+            return;
+          }
+
+          if (statusData.status === 'failed') {
+            setResult({ error: statusData.error || 'Generation failed' });
+            setIsGenerating(false);
+            return;
+          }
+
+          setTimeout(poll, 2000);
+        };
+
+        setTimeout(poll, 1200);
+      } else {
+        setResult(data);
+      }
     } catch (error) {
       console.error('Generation failed:', error);
       setResult({ error: 'Failed to generate SaaS' });
     } finally {
-      setIsGenerating(false);
+      if (!startedAsyncPolling) {
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -95,6 +203,7 @@ export default function Home() {
               From idea to deployed SaaS in minutes
             </p>
           </div>
+
 
           {/* Form */}
           <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700">
@@ -114,6 +223,22 @@ export default function Home() {
                   <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${advanced ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-700 bg-gray-900/20 px-4 py-3">
+                <div>
+                  <p className="font-semibold">Async generation</p>
+                  <p className="text-sm text-gray-400">Runs in background with progress polling for faster UX.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAsyncMode((v) => !v)}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${asyncMode ? 'bg-blue-600' : 'bg-gray-700'}`}
+                  aria-pressed={asyncMode}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${asyncMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
               {/* Project Name */}
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
@@ -167,6 +292,66 @@ export default function Home() {
 
               {advanced && (
                 <div className="rounded-2xl border border-gray-700 bg-gray-900/40 p-5 space-y-4">
+                  <div className="rounded-xl border border-gray-700 bg-gray-950/50 p-4 space-y-4">
+                    <div>
+                      <p className="font-semibold">Integrations</p>
+                      <p className="text-sm text-gray-400">Paste Vercel/Turso tokens so Codex can test connectivity, or leave blank to use server env tokens.</p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label htmlFor="vercelToken" className="mb-2 block text-sm font-medium text-gray-300">Vercel Token</label>
+                        <input
+                          id="vercelToken"
+                          type="password"
+                          value={vercelToken}
+                          onChange={(e) => setVercelToken(e.target.value)}
+                          placeholder="vercel_xxx"
+                          className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="tursoToken" className="mb-2 block text-sm font-medium text-gray-300">Turso Token</label>
+                        <input
+                          id="tursoToken"
+                          type="password"
+                          value={tursoToken}
+                          onChange={(e) => setTursoToken(e.target.value)}
+                          placeholder="turso_xxx"
+                          className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <button
+                        type="button"
+                        onClick={testIntegrations}
+                        disabled={isTestingIntegrations}
+                        className="rounded-lg border border-gray-600 bg-gray-900 px-4 py-2 text-sm font-semibold hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isTestingIntegrations ? 'Testing…' : 'Test Vercel + Turso'}
+                      </button>
+                      {integrationStatus && (
+                        <div className="text-sm text-gray-300">
+                          <span className={integrationStatus.vercel.connected ? 'text-green-400' : 'text-red-400'}>
+                            Vercel: {integrationStatus.vercel.connected ? 'connected' : 'failed'}
+                          </span>
+                          {' • '}
+                          <span className={integrationStatus.turso.connected ? 'text-green-400' : 'text-red-400'}>
+                            Turso: {integrationStatus.turso.connected ? 'connected' : 'failed'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected) && (
+                      <div className="rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-200">
+                        {!integrationStatus.vercel.connected && <p>{integrationStatus.vercel.error}</p>}
+                        {!integrationStatus.turso.connected && <p>{integrationStatus.turso.error}</p>}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-semibold">Requirements</p>
@@ -221,6 +406,12 @@ export default function Home() {
             </form>
           </div>
 
+          {isGenerating && asyncMode && jobId && (
+            <div className="mt-6 rounded-xl border border-blue-700 bg-blue-950/30 p-4 text-sm text-blue-200">
+              Background generation running. Tracking job: <span className="font-mono">{jobId}</span>
+            </div>
+          )}
+
           {/* Result */}
           {result && (
             <div className="mt-8 bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700">
@@ -248,6 +439,18 @@ export default function Home() {
                         {result.url}
                       </a>
                     </div>
+
+
+                    {result.vercelLinkedRepo !== undefined && (
+                      <div className="bg-gray-900 p-4 rounded-lg">
+                        <p className="text-gray-400 text-sm mb-1">Vercel Git Integration</p>
+                        <p className={result.vercelLinkedRepo ? 'text-green-400' : 'text-yellow-300'}>
+                          {result.vercelLinkedRepo
+                            ? 'Linked directly to the newly created GitHub repo (no manual clone/import needed).'
+                            : 'Auto-linking failed; use manual import fallback below.'}
+                        </p>
+                      </div>
+                    )}
 
                     {result.stripeUrl && (
                       <div className="bg-gray-900 p-4 rounded-lg">
@@ -288,6 +491,56 @@ export default function Home() {
                         >
                           ▲ Deploy to Vercel
                         </a>
+                      </div>
+                    )}
+
+                    {result.verification && (
+                      <div className="bg-gray-900 p-4 rounded-lg">
+                        <p className="text-gray-400 text-sm mb-1">Deployment Verification</p>
+                        <p className={result.verification.passed ? 'text-green-400' : 'text-yellow-300'}>
+                          {result.verification.passed ? 'All post-deploy functional checks passed' : result.verification.pending ? 'Verification pending deployment propagation' : 'Verification warnings detected'}
+                        </p>
+                        {!result.verification.passed && (
+                          <ul className="mt-2 text-xs text-yellow-200 list-disc pl-5">
+                            {result.verification.errors.map((err) => (<li key={err}>{err}</li>))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+
+                    {result.revenueReadiness && (
+                      <div className="bg-gray-900 p-4 rounded-lg space-y-2">
+                        <p className="text-gray-400 text-sm">Revenue Readiness Score</p>
+                        <p className="text-xl font-semibold text-green-400">{result.revenueReadiness.score}%</p>
+                        <div className="text-xs text-gray-300 grid grid-cols-2 gap-1">
+                          <span>Billing: {result.revenueReadiness.checks.billing ? '✅' : '❌'}</span>
+                          <span>Auth: {result.revenueReadiness.checks.authentication ? '✅' : '❌'}</span>
+                          <span>Database: {result.revenueReadiness.checks.database ? '✅' : '❌'}</span>
+                          <span>Deployment: {result.revenueReadiness.checks.deployment ? '✅' : '❌'}</span>
+                          <span>Onboarding: {result.revenueReadiness.checks.onboarding ? '✅' : '❌'}</span>
+                          <span>Analytics: {result.revenueReadiness.checks.analytics ? '✅' : '❌'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {result.stats && (
+                      <div className="bg-gray-900 p-4 rounded-lg text-xs text-gray-300 space-y-1">
+                        <p>Generation Duration: {Math.round(result.stats.durationMs / 1000)}s</p>
+                        <p>Uploaded Files: {result.stats.totalFiles - result.stats.failedFiles.length}/{result.stats.totalFiles}</p>
+                        {result.stats.failedFiles.length > 0 && (
+                          <p className="text-yellow-300">Failed files: {result.stats.failedFiles.join(', ')}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {result.remediation && result.remediation.length > 0 && (
+                      <div className="bg-gray-900 p-4 rounded-lg text-xs text-gray-300">
+                        <p className="mb-2 font-semibold text-yellow-300">Suggested remediation commands</p>
+                        <ul className="space-y-1 list-disc pl-5">
+                          {result.remediation.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>
