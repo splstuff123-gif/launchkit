@@ -25,7 +25,19 @@ export default function Home() {
     vercelImportUrl?: string;
   };
 
+  type IntegrationStatus = {
+    connected: boolean;
+    error?: string;
+  };
+
   const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [vercelToken, setVercelToken] = useState('');
+  const [tursoToken, setTursoToken] = useState('');
+  const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    vercel: IntegrationStatus;
+    turso: IntegrationStatus;
+  } | null>(null);
 
   const generateRequirements = async () => {
     setIsReqGenerating(true);
@@ -53,6 +65,34 @@ export default function Home() {
       setResult({ error: msg });
     } finally {
       setIsReqGenerating(false);
+    }
+  };
+
+
+  const testIntegrations = async () => {
+    setIsTestingIntegrations(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vercelToken, tursoToken }),
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      setIntegrationStatus({
+        vercel: data.vercel,
+        turso: data.turso,
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Failed to test integrations';
+      setResult({ error: msg });
+      setIntegrationStatus(null);
+    } finally {
+      setIsTestingIntegrations(false);
     }
   };
 
@@ -95,6 +135,7 @@ export default function Home() {
               From idea to deployed SaaS in minutes
             </p>
           </div>
+
 
           {/* Form */}
           <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700">
@@ -167,6 +208,66 @@ export default function Home() {
 
               {advanced && (
                 <div className="rounded-2xl border border-gray-700 bg-gray-900/40 p-5 space-y-4">
+                  <div className="rounded-xl border border-gray-700 bg-gray-950/50 p-4 space-y-4">
+                    <div>
+                      <p className="font-semibold">Integrations</p>
+                      <p className="text-sm text-gray-400">Paste Vercel/Turso tokens so Codex can test connectivity, or leave blank to use server env tokens.</p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label htmlFor="vercelToken" className="mb-2 block text-sm font-medium text-gray-300">Vercel Token</label>
+                        <input
+                          id="vercelToken"
+                          type="password"
+                          value={vercelToken}
+                          onChange={(e) => setVercelToken(e.target.value)}
+                          placeholder="vercel_xxx"
+                          className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="tursoToken" className="mb-2 block text-sm font-medium text-gray-300">Turso Token</label>
+                        <input
+                          id="tursoToken"
+                          type="password"
+                          value={tursoToken}
+                          onChange={(e) => setTursoToken(e.target.value)}
+                          placeholder="turso_xxx"
+                          className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <button
+                        type="button"
+                        onClick={testIntegrations}
+                        disabled={isTestingIntegrations}
+                        className="rounded-lg border border-gray-600 bg-gray-900 px-4 py-2 text-sm font-semibold hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isTestingIntegrations ? 'Testing…' : 'Test Vercel + Turso'}
+                      </button>
+                      {integrationStatus && (
+                        <div className="text-sm text-gray-300">
+                          <span className={integrationStatus.vercel.connected ? 'text-green-400' : 'text-red-400'}>
+                            Vercel: {integrationStatus.vercel.connected ? 'connected' : 'failed'}
+                          </span>
+                          {' • '}
+                          <span className={integrationStatus.turso.connected ? 'text-green-400' : 'text-red-400'}>
+                            Turso: {integrationStatus.turso.connected ? 'connected' : 'failed'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected) && (
+                      <div className="rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-200">
+                        {!integrationStatus.vercel.connected && <p>{integrationStatus.vercel.error}</p>}
+                        {!integrationStatus.turso.connected && <p>{integrationStatus.turso.error}</p>}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-semibold">Requirements</p>
