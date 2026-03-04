@@ -202,6 +202,7 @@ Response:
 - `GET /api/analytics/events` → recent event stream
 - `GET /api/analytics/funnel` → funnel counters (`ideaSubmitted`, `requirementsAccepted`, `generationStarted`, `generationCompleted`, `deploymentSuccess`, `firstPaidConversion`)
 - `POST /api/analytics/track` → track custom events (e.g., `first_paid_conversion`)
+- `GET /api/generate/preflight` → validate GitHub/Vercel/Turso tokens before generation run
 
 ## 🤝 Contributing
 

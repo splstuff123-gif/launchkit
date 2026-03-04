@@ -34,6 +34,7 @@ export default function Home() {
         checkoutSession: boolean;
       };
       errors: string[];
+      pending?: boolean;
     };
     revenueReadiness?: {
       score: number;
@@ -492,7 +493,7 @@ export default function Home() {
                       <div className="bg-gray-900 p-4 rounded-lg">
                         <p className="text-gray-400 text-sm mb-1">Deployment Verification</p>
                         <p className={result.verification.passed ? 'text-green-400' : 'text-yellow-300'}>
-                          {result.verification.passed ? 'All post-deploy functional checks passed' : 'Verification warnings detected'}
+                          {result.verification.passed ? 'All post-deploy functional checks passed' : result.verification.pending ? 'Verification pending deployment propagation' : 'Verification warnings detected'}
                         </p>
                         {!result.verification.passed && (
                           <ul className="mt-2 text-xs text-yellow-200 list-disc pl-5">

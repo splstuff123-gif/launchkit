@@ -48,6 +48,21 @@ export async function GET() {
   }
 }
 `,
+    'src/app/api/ready/route.ts': `import { NextResponse } from 'next/server';
+
+export async function GET() {
+  const checks = {
+    appUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL),
+    stripeKey: Boolean(process.env.STRIPE_SECRET_KEY),
+    stripePrice: Boolean(process.env.STRIPE_PRICE_ID),
+    tursoUrl: Boolean(process.env.TURSO_DATABASE_URL),
+    tursoToken: Boolean(process.env.TURSO_AUTH_TOKEN),
+  };
+
+  const ok = Object.values(checks).every(Boolean);
+  return NextResponse.json({ ok, checks }, { status: ok ? 200 : 500 });
+}
+`,
     'src/app/api/billing/checkout/route.ts': `import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -141,6 +156,7 @@ const checks = [
   '/api/health',
   '/api/db/ping',
   '/api/auth/status',
+  '/api/ready',
   '/billing',
 ];
 
@@ -154,6 +170,8 @@ for (const path of checks) {
 
 console.log('Smoke checks passed');
 `,
+    '.github/workflows/ci.yml': `name: CI\n\non:\n  push:\n    branches: [ main ]\n  pull_request:\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '20'\n      - run: npm ci\n      - run: npm run lint\n      - run: npm run build\n`,
+    'LAUNCH_CHECKLIST.md': `# Launch Checklist\n\n- [ ] Configure Stripe env vars (STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET)\n- [ ] Configure Turso env vars (TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)\n- [ ] Run smoke checks (npm run test:smoke)\n- [ ] Verify /api/ready returns ok: true\n- [ ] Confirm billing checkout works in Stripe test mode\n`,
     'PRIVACY.md': `# Privacy Policy\n\nThis generated product includes a default privacy policy template. Replace with counsel-approved policy before production launch.\n`,
     'TERMS.md': `# Terms of Service\n\nThis generated product includes a default terms template. Replace with counsel-approved terms before production launch.\n`,
     'src/lib/rate-limit.ts': `const windowMs = 60_000;

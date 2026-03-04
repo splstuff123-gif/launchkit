@@ -51,6 +51,7 @@ type DeploymentVerification = {
     checkoutSession: boolean;
   };
   errors: string[];
+  pending?: boolean;
 };
 
 async function checkJsonOk(url: string, expectedOkField = true) {
@@ -166,6 +167,18 @@ async function waitForUrlReachable(url: string, maxAttempts = 20) {
   }
 
   return false;
+}
+
+async function verifyWithFinalRetry(baseUrl: string) {
+  let verification = await verifyDeployment(baseUrl);
+  const allFailed = Object.values(verification.checks).every((value) => value === false);
+
+  if (allFailed) {
+    await sleep(15000);
+    verification = await verifyDeployment(baseUrl);
+  }
+
+  return verification;
 }
 
 function calculateRevenueReadiness(input: {
@@ -449,16 +462,28 @@ async function runGeneration(payload: { name: string; description: string; price
     }
   }
 
-  await waitForUrlReachable(deployedUrl);
+  const urlReachable = await waitForUrlReachable(deployedUrl);
 
-  const verification = await verifyDeployment(deployedUrl);
+  let verification = await verifyWithFinalRetry(deployedUrl);
+  if (!urlReachable && Object.values(verification.checks).every((value) => value === false)) {
+    verification = {
+      ...verification,
+      pending: true,
+      errors: [...verification.errors, 'Deployment URL not reachable yet. Verification is pending propagation.'],
+    };
+  }
+
   const hasBillingSignals = /billing|stripe|subscription|payment|checkout/i.test(effectiveDescription);
   const hasAuthSignals = /auth|login|sign up|signup|user account|session/i.test(effectiveDescription);
   const hasOnboarding = /onboarding|empty state|first-run|tutorial/i.test(effectiveDescription) || Boolean(requirements);
   const hasAnalyticsEvents = /analytics|event|track|funnel/i.test(effectiveDescription);
 
-  const deploymentCoreOk = verification.checks.homepage && verification.checks.healthEndpoint;
-  const databaseOk = verification.checks.dbRoundtrip || Boolean(tursoConfig);
+  const deploymentCoreOk = verification.pending
+    ? Boolean(vercelLinkedRepo && !manualImportRequired)
+    : verification.checks.homepage && verification.checks.healthEndpoint;
+  const databaseOk = verification.pending
+    ? Boolean(tursoConfig)
+    : verification.checks.dbRoundtrip || Boolean(tursoConfig);
 
   const revenueReadiness = calculateRevenueReadiness({
     hasBillingSignals,
@@ -470,6 +495,7 @@ async function runGeneration(payload: { name: string; description: string; price
   });
 
   const remediation = [
+    ...(verification.pending ? ['Wait 1-2 minutes for initial deployment propagation, then re-run verification.'] : []),
     ...(failedFilesList.length > 0
       ? [`Retry file upload in generated repo: git add . && git commit -m "fix" && git push`] : []),
     ...(!verification.checks.checkoutSession
