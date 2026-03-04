@@ -95,8 +95,36 @@ function extractSignals(description: string): DescriptionSignals {
   return { domain, actors, capabilities, integrations, monetizationHints, analyticsHints };
 }
 
+
+function splitDescriptionHighlights(description: string): string[] {
+  const parts = description
+    .split(/[.!?\n]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 8);
+
+  return unique(parts).slice(0, 5);
+}
+
+function deriveExecutionNotes(description: string, signals: DescriptionSignals): string[] {
+  const highlights = splitDescriptionHighlights(description);
+
+  const notes = [
+    ...highlights.map((h, i) => `Description focus ${i + 1}: ${h}`),
+    signals.capabilities.length
+      ? `Capability emphasis: ${signals.capabilities.join(', ')}`
+      : 'Capability emphasis: core workflow execution and fast time-to-value',
+    signals.integrations.length
+      ? `Integration emphasis: ${signals.integrations.join(', ')}`
+      : 'Integration emphasis: keep provider interfaces pluggable',
+  ];
+
+  return notes.slice(0, 8);
+}
+
 function inferSpec(name: string, description: string): ProductSpec {
   const signals = extractSignals(description);
+  const highlights = splitDescriptionHighlights(description);
+  const executionNotes = deriveExecutionNotes(description, signals);
 
   const userRoles = signals.actors.length
     ? signals.actors
@@ -133,7 +161,7 @@ function inferSpec(name: string, description: string): ProductSpec {
       id: '1',
       priority: 'must',
       title: 'Description-aligned core workflow',
-      description: `Implement the core user journey described as: "${description}" and make it the default path after onboarding.`,
+      description: `Implement the core user journey described as: "${description}" and make it the default path after onboarding. Explicitly cover: ${highlights.join(" | ") || "primary value journey"}.`,
     },
     {
       id: '2',
@@ -151,7 +179,7 @@ function inferSpec(name: string, description: string): ProductSpec {
       id: '4',
       priority: 'must',
       title: 'Monetization implementation',
-      description: `Implement ${monetizationModel} billing with checkout, webhook handling, and plan/entitlement checks.`,
+      description: `Implement ${monetizationModel} billing with checkout, webhook handling, and plan/entitlement checks. Monetization cues from prompt: ${signals.monetizationHints.join(", ") || "subscription"}.`,
     },
     {
       id: '5',
@@ -207,6 +235,7 @@ function inferSpec(name: string, description: string): ProductSpec {
       'User onboarding and authentication',
       'Primary value-delivery workflow from product description',
       'Billing and access control lifecycle',
+      ...executionNotes.slice(0, 3),
     ],
     monetization: {
       model: monetizationModel,
@@ -368,7 +397,7 @@ export async function POST(request: Request) {
       success: true,
       doc: spec,
       promptSuggestion:
-        'Edit requirements with prompt-correlation in mind. You can ask: "expand missing signals", "add onboarding KPI", "add checkout recovery flow".',
+        'Edit requirements with prompt-correlation in mind. You can ask: "expand description highlights", "turn signal X into acceptance criteria", "add onboarding KPI", "add checkout recovery flow".',
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to generate requirements';
