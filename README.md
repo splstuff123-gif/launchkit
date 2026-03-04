@@ -49,6 +49,15 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+### 4. Verify Vercel + Turso Connection (optional)
+
+Open the LaunchKit home page, enable **Advanced**, and use the **Integrations** panel to test token connectivity:
+
+- Paste `VERCEL_TOKEN` and `TURSO_TOKEN` directly in the UI (kept in-memory on the page)
+- Or leave fields blank to test server-side `.env` tokens
+- Click **Test Vercel + Turso** to validate both providers before generating a SaaS
+
+
 ## 🎨 Features
 
 ### Current Templates
@@ -122,7 +131,9 @@ LaunchKit now uses **Turso** instead of Supabase for:
 7. Creates Vercel project
 8. Sets environment variables
 9. Triggers deployment
-10. Returns live URL + dashboard links
+10. Runs post-deploy functional checks (health, DB ping, auth status, pricing page, checkout endpoint)
+11. Returns live URL + remediation guidance + readiness/verification metrics
+12. Supports async generation mode with job polling for progress tracking
 
 ## 🔮 Roadmap
 
@@ -156,6 +167,31 @@ Response:
   "githubUrl": "https://github.com/username/taskmaster-pro",
   "tursoUrl": "https://turso.tech/app/databases/taskmaster-pro",
   "vercelImportUrl": "https://vercel.com/new/clone?repository-url=...",
+  "verification": {
+    "passed": false,
+    "checks": {
+      "homepage": true,
+      "healthEndpoint": true,
+      "dbRoundtrip": true,
+      "authFlow": true,
+      "pricingPage": true,
+      "checkoutSession": false
+    },
+    "errors": ["checkoutSession check failed"]
+  },
+  "revenueReadiness": {
+    "score": 100,
+    "checks": {
+      "billing": true,
+      "authentication": true,
+      "database": true,
+      "deployment": true,
+      "onboarding": true,
+      "analytics": true
+    }
+  },
+  "stats": { "totalFiles": 24, "failedFiles": [], "durationMs": 18342 },
+  "remediation": ["Set STRIPE_SECRET_KEY and STRIPE_PRICE_ID in Vercel project env, then redeploy"],
   "message": "SaaS created successfully! Database is configured and ready."
 }
 ```
