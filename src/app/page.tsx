@@ -139,6 +139,8 @@ export default function Home() {
       const payload: Record<string, unknown> = { ...formData, async: asyncMode };
       if (advanced) {
         payload.requirements = requirementsText;
+        if (vercelToken.trim()) payload.vercelToken = vercelToken.trim();
+        if (tursoToken.trim()) payload.tursoToken = tursoToken.trim();
       }
 
       const response = await fetch('/api/generate', {

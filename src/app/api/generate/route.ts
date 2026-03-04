@@ -7,10 +7,10 @@ import { parseRequirementsText } from '@/lib/requirements';
 import { createJob, getJob, updateJob } from '@/lib/generation-jobs';
 import { trackEvent } from '@/lib/analytics';
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
-const GITHUB_USERNAME = process.env.GITHUB_USERNAME!;
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN!;
-const TURSO_TOKEN = process.env.TURSO_TOKEN!;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_USERNAME = process.env.GITHUB_USERNAME;
+const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+const TURSO_TOKEN = process.env.TURSO_TOKEN;
 
 const CRITICAL_PATHS = ['package.json', 'src/app/page.tsx', 'src/app/layout.tsx'];
 
@@ -123,12 +123,12 @@ async function verifyDeployment(baseUrl: string): Promise<DeploymentVerification
 }
 
 
-async function waitForVercelDeploymentReady(deploymentId: string, maxAttempts = 36) {
+async function waitForVercelDeploymentReady(deploymentId: string, vercelToken: string, maxAttempts = 36) {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}`, {
         headers: {
-          Authorization: `Bearer ${VERCEL_TOKEN}`,
+          Authorization: `Bearer ${vercelToken}`,
         },
       });
 
@@ -206,9 +206,14 @@ function calculateRevenueReadiness(input: {
   };
 }
 
-async function runGeneration(payload: { name: string; description: string; price: string; requirements?: string }, jobId?: string) {
+async function runGeneration(
+  payload: { name: string; description: string; price: string; requirements?: string; vercelToken?: string; tursoToken?: string },
+  jobId?: string
+) {
   const startedAt = Date.now();
   const { name, description, price, requirements } = payload;
+  const activeVercelToken = payload.vercelToken?.trim() || VERCEL_TOKEN;
+  const activeTursoToken = payload.tursoToken?.trim() || TURSO_TOKEN;
 
   const setStep = (step: string, progress: number) => {
     if (jobId) updateJob(jobId, { status: 'running', step, progress });
@@ -218,6 +223,10 @@ async function runGeneration(payload: { name: string; description: string; price
   setStep('Creating GitHub repository', 10);
 
   let repoName = name.toLowerCase().replace(/\s+/g, '-');
+  if (!GITHUB_TOKEN || !GITHUB_USERNAME || !activeVercelToken) {
+    throw new Error('Server is missing one or more required credentials: GITHUB_TOKEN, GITHUB_USERNAME, VERCEL_TOKEN (or provide vercelToken in request)');
+  }
+
   const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
   let repo;
@@ -270,7 +279,10 @@ async function runGeneration(payload: { name: string; description: string; price
   let tursoConfig;
   let tursoUrl = null;
   try {
-    tursoConfig = await createTursoDatabase(repoName, TURSO_TOKEN);
+    if (!activeTursoToken) {
+      throw new Error('Missing TURSO_TOKEN');
+    }
+    tursoConfig = await createTursoDatabase(repoName, activeTursoToken);
     tursoUrl = `https://turso.tech/app/databases/${repoName}`;
 
     const schemaFile = files['SCHEMA.sql'] as string;
@@ -364,7 +376,7 @@ async function runGeneration(payload: { name: string; description: string; price
     const projectData = await vercelFetchJson<{ id: string }>('/v9/projects', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${VERCEL_TOKEN}`,
+        Authorization: `Bearer ${activeVercelToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -397,7 +409,7 @@ async function runGeneration(payload: { name: string; description: string; price
             vercelFetchJson(`/v10/projects/${projectId}/env`, {
               method: 'POST',
               headers: {
-                Authorization: `Bearer ${VERCEL_TOKEN}`,
+                Authorization: `Bearer ${activeVercelToken}`,
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({ ...envVar, upsert: true }),
@@ -413,7 +425,7 @@ async function runGeneration(payload: { name: string; description: string; price
     await vercelFetchJson(`/v9/projects/${projectId}/link`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${VERCEL_TOKEN}`,
+        Authorization: `Bearer ${activeVercelToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -428,7 +440,7 @@ async function runGeneration(payload: { name: string; description: string; price
     const deployData = await vercelFetchJson<{ id?: string; url: string }>('/v13/deployments', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${VERCEL_TOKEN}`,
+        Authorization: `Bearer ${activeVercelToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -452,7 +464,7 @@ async function runGeneration(payload: { name: string; description: string; price
   setStep('Running post-deploy functional verification', 90);
 
   if (deploymentId) {
-    const deploymentState = await waitForVercelDeploymentReady(deploymentId);
+    const deploymentState = await waitForVercelDeploymentReady(deploymentId, activeVercelToken);
     if (!deploymentState.ready) {
       await trackEvent('generation_failed', {
         name,
@@ -557,13 +569,36 @@ export async function POST(request: Request) {
   try {
     const payload = await request.json();
 
-    await trackEvent('idea_submitted', { name: payload.name });
+    const name = String(payload?.name || '').trim();
+    const description = String(payload?.description || '').trim();
+    const priceRaw = String(payload?.price || '').trim();
 
-    if (payload?.async === true) {
+    if (!name || !description || !priceRaw) {
+      return NextResponse.json({ error: 'name, description, and price are required' }, { status: 400 });
+    }
+
+    const numericPrice = Number(priceRaw);
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+      return NextResponse.json({ error: 'price must be a positive number' }, { status: 400 });
+    }
+
+    const cleanedPayload = {
+      name,
+      description,
+      price: String(numericPrice),
+      requirements: payload?.requirements ? String(payload.requirements) : undefined,
+      vercelToken: payload?.vercelToken ? String(payload.vercelToken) : undefined,
+      tursoToken: payload?.tursoToken ? String(payload.tursoToken) : undefined,
+      async: payload?.async === true,
+    };
+
+    await trackEvent('idea_submitted', { name: cleanedPayload.name });
+
+    if (cleanedPayload.async === true) {
       const job = createJob();
       updateJob(job.id, { status: 'running', step: 'Starting generation', progress: 1 });
 
-      void runGeneration(payload, job.id)
+      void runGeneration(cleanedPayload, job.id)
         .then((result) => {
           updateJob(job.id, { status: 'succeeded', progress: 100, step: 'Completed', result });
           void trackEvent('deployment_success', { jobId: job.id, url: result.url as string });
@@ -577,7 +612,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, async: true, jobId: job.id });
     }
 
-    const result = await runGeneration(payload);
+    const result = await runGeneration(cleanedPayload);
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error('❌ Generation error:', error);
