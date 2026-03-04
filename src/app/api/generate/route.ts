@@ -112,6 +112,53 @@ async function verifyDeployment(baseUrl: string): Promise<DeploymentVerification
   return { passed, checks, errors };
 }
 
+
+async function waitForVercelDeploymentReady(deploymentId: string, maxAttempts = 36) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}`, {
+        headers: {
+          Authorization: `Bearer ${VERCEL_TOKEN}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const state = String(data.readyState || '').toUpperCase();
+        if (state === 'READY') {
+          return { ready: true };
+        }
+        if (state === 'ERROR' || state === 'CANCELED') {
+          return { ready: false, state };
+        }
+      }
+    } catch {
+      // Keep polling on transient failures.
+    }
+
+    await sleep(5000);
+  }
+
+  return { ready: false, state: 'TIMEOUT' };
+}
+
+async function waitForUrlReachable(url: string, maxAttempts = 20) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, { method: 'GET', cache: 'no-store' });
+      if (response.ok || response.status === 401 || response.status === 403) {
+        return true;
+      }
+    } catch {
+      // Continue polling.
+    }
+
+    await sleep(3000);
+  }
+
+  return false;
+}
+
 function calculateRevenueReadiness(input: {
   hasBillingSignals: boolean;
   hasAuthSignals: boolean;
@@ -299,6 +346,7 @@ async function runGeneration(payload: { name: string; description: string; price
 
   let deployedUrl = `https://${repoName}.vercel.app`;
   let projectId: string | null = null;
+  let deploymentId: string | null = null;
 
   if (vercelProject.ok) {
     const projectData = await vercelProject.json();
@@ -374,6 +422,7 @@ async function runGeneration(payload: { name: string; description: string; price
 
       if (vercelDeploy.ok) {
         const deployData = await vercelDeploy.json();
+        deploymentId = deployData.id || null;
         deployedUrl = `https://${deployData.url}`;
       }
     }
@@ -381,10 +430,23 @@ async function runGeneration(payload: { name: string; description: string; price
 
   setStep('Running post-deploy functional verification', 90);
 
+  if (deploymentId) {
+    const deploymentState = await waitForVercelDeploymentReady(deploymentId);
+    if (!deploymentState.ready) {
+      await trackEvent('generation_failed', {
+        name,
+        reason: 'deployment_not_ready',
+        state: deploymentState.state,
+      });
+    }
+  }
+
+  await waitForUrlReachable(deployedUrl);
+
   const verification = await verifyDeployment(deployedUrl);
   const hasBillingSignals = /billing|stripe|subscription|payment|checkout/i.test(effectiveDescription);
   const hasAuthSignals = /auth|login|sign up|signup|user account|session/i.test(effectiveDescription);
-  const hasOnboarding = /onboarding|empty state|first-run|tutorial/i.test(effectiveDescription);
+  const hasOnboarding = /onboarding|empty state|first-run|tutorial/i.test(effectiveDescription) || Boolean(requirements);
   const hasAnalyticsEvents = /analytics|event|track|funnel/i.test(effectiveDescription);
 
   const revenueReadiness = calculateRevenueReadiness({
