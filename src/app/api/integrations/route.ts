@@ -15,13 +15,16 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const vercelToken = (body.vercelToken as string | undefined)?.trim() || process.env.VERCEL_TOKEN;
     const tursoToken = (body.tursoToken as string | undefined)?.trim() || process.env.TURSO_TOKEN;
+    const openAiKey = (body.openAiKey as string | undefined)?.trim() || process.env.OPENAI_API_KEY;
 
     const result: {
       vercel: ProviderStatus;
       turso: ProviderStatus;
+      openai: ProviderStatus;
     } = {
       vercel: { connected: false },
       turso: { connected: false },
+      openai: { connected: false },
     };
 
     if (!vercelToken) {
@@ -68,8 +71,31 @@ export async function POST(request: Request) {
       }
     }
 
+
+    if (!openAiKey) {
+      result.openai.error = 'Missing OpenAI API key';
+    } else {
+      try {
+        const response = await fetch('https://api.openai.com/v1/models', {
+          headers: {
+            Authorization: `Bearer ${openAiKey}`,
+          },
+        });
+
+        if (!response.ok) {
+          const details = await response.text();
+          throw new Error(details || `HTTP ${response.status}`);
+        }
+
+        result.openai.connected = true;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        result.openai.error = `OpenAI connection failed: ${message}`;
+      }
+    }
+
     return NextResponse.json({
-      success: result.vercel.connected && result.turso.connected,
+      success: result.vercel.connected && result.turso.connected && result.openai.connected,
       ...result,
     });
   } catch (error: unknown) {

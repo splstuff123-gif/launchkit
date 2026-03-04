@@ -85,9 +85,11 @@ export default function Home() {
   const [tursoToken, setTursoToken] = useState('');
   const [openAiKey, setOpenAiKey] = useState('');
   const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
+  const [isTestingOpenAiKey, setIsTestingOpenAiKey] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<{
     vercel: IntegrationStatus;
     turso: IntegrationStatus;
+    openai: IntegrationStatus;
   } | null>(null);
 
   const [asyncMode, setAsyncMode] = useState(true);
@@ -146,7 +148,7 @@ export default function Home() {
       const response = await fetch('/api/integrations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vercelToken, tursoToken }),
+        body: JSON.stringify({ vercelToken, tursoToken, openAiKey }),
       });
 
       const data = await response.json();
@@ -155,6 +157,7 @@ export default function Home() {
       setIntegrationStatus({
         vercel: data.vercel,
         turso: data.turso,
+        openai: data.openai || { connected: false, error: 'OpenAI status unavailable' },
       });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to test integrations';
@@ -162,6 +165,33 @@ export default function Home() {
       setIntegrationStatus(null);
     } finally {
       setIsTestingIntegrations(false);
+    }
+  };
+
+  const validateOpenAiKey = async () => {
+    setIsTestingOpenAiKey(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openAiKey }),
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      setIntegrationStatus((previous) => ({
+        vercel: previous?.vercel || { connected: false },
+        turso: previous?.turso || { connected: false },
+        openai: data.openai || { connected: false, error: 'OpenAI status unavailable' },
+      }));
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Failed to validate OpenAI key';
+      setResult({ error: msg });
+    } finally {
+      setIsTestingOpenAiKey(false);
     }
   };
 
@@ -367,6 +397,14 @@ export default function Home() {
                         placeholder="sk-..."
                         className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
+                      <button
+                        type="button"
+                        onClick={validateOpenAiKey}
+                        disabled={isTestingOpenAiKey || !openAiKey.trim()}
+                        className="mt-3 rounded-lg border border-gray-600 bg-gray-900 px-4 py-2 text-sm font-semibold hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isTestingOpenAiKey ? 'Validating OpenAI key…' : 'Validate OpenAI key'}
+                      </button>
                     </div>
 
                     <div className="flex items-center justify-between gap-4">
@@ -387,14 +425,19 @@ export default function Home() {
                           <span className={integrationStatus.turso.connected ? 'text-green-400' : 'text-red-400'}>
                             Turso: {integrationStatus.turso.connected ? 'connected' : 'failed'}
                           </span>
+                          {' • '}
+                          <span className={integrationStatus.openai.connected ? 'text-green-400' : 'text-red-400'}>
+                            OpenAI: {integrationStatus.openai.connected ? 'connected' : 'failed'}
+                          </span>
                         </div>
                       )}
                     </div>
 
-                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected) && (
+                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected || !integrationStatus.openai.connected) && (
                       <div className="rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-200">
                         {!integrationStatus.vercel.connected && <p>{integrationStatus.vercel.error}</p>}
                         {!integrationStatus.turso.connected && <p>{integrationStatus.turso.error}</p>}
+                        {!integrationStatus.openai.connected && <p>{integrationStatus.openai.error}</p>}
                       </div>
                     )}
                   </div>
