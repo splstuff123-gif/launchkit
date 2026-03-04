@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { RequirementsDoc } from '@/lib/requirements';
 
@@ -23,9 +23,67 @@ export default function Home() {
     stripeUrl?: string;
     supabaseUrl?: string;
     vercelImportUrl?: string;
+    verification?: {
+      passed: boolean;
+      checks: {
+        homepage: boolean;
+        healthEndpoint: boolean;
+        dbRoundtrip: boolean;
+        authFlow: boolean;
+        pricingPage: boolean;
+        checkoutSession: boolean;
+      };
+      errors: string[];
+      pending?: boolean;
+    };
+    revenueReadiness?: {
+      score: number;
+      checks: {
+        billing: boolean;
+        authentication: boolean;
+        database: boolean;
+        deployment: boolean;
+        onboarding: boolean;
+        analytics: boolean;
+      };
+    };
+    stats?: {
+      totalFiles: number;
+      failedFiles: string[];
+      durationMs: number;
+    };
+    remediation?: string[];
+    vercelLinkedRepo?: boolean;
+    manualImportRequired?: boolean;
+  };
+
+  type IntegrationStatus = {
+    connected: boolean;
+    error?: string;
   };
 
   const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [vercelToken, setVercelToken] = useState('');
+  const [tursoToken, setTursoToken] = useState('');
+  const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    vercel: IntegrationStatus;
+    turso: IntegrationStatus;
+  } | null>(null);
+
+  const [asyncMode, setAsyncMode] = useState(true);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [previewTab, setPreviewTab] = useState<'landing' | 'app'>('landing');
+
+  const previewName = formData.name.trim() || 'Your SaaS';
+  const previewPrice = formData.price.trim() || '29';
+  const previewType = useMemo(() => {
+    const desc = formData.description.toLowerCase();
+    if (/marketplace|vendor|buyer|seller|booking|service/.test(desc)) return 'Marketplace SaaS';
+    if (/creator|course|newsletter|community|content|fans/.test(desc)) return 'Creator SaaS';
+    if (/team|enterprise|crm|dashboard|analytics|b2b|sales/.test(desc)) return 'B2B SaaS';
+    return 'Productivity SaaS';
+  }, [formData.description]);
 
   const generateRequirements = async () => {
     setIsReqGenerating(true);
@@ -56,14 +114,46 @@ export default function Home() {
     }
   };
 
+
+  const testIntegrations = async () => {
+    setIsTestingIntegrations(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vercelToken, tursoToken }),
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      setIntegrationStatus({
+        vercel: data.vercel,
+        turso: data.turso,
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Failed to test integrations';
+      setResult({ error: msg });
+      setIntegrationStatus(null);
+    } finally {
+      setIsTestingIntegrations(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGenerating(true);
 
+    let startedAsyncPolling = false;
+
     try {
-      const payload: Record<string, unknown> = { ...formData };
+      const payload: Record<string, unknown> = { ...formData, async: asyncMode };
       if (advanced) {
         payload.requirements = requirementsText;
+        if (vercelToken.trim()) payload.vercelToken = vercelToken.trim();
+        if (tursoToken.trim()) payload.tursoToken = tursoToken.trim();
       }
 
       const response = await fetch('/api/generate', {
@@ -73,12 +163,41 @@ export default function Home() {
       });
 
       const data = await response.json();
-      setResult(data);
+
+      if (asyncMode && data.jobId) {
+        startedAsyncPolling = true;
+        setJobId(data.jobId);
+
+        const poll = async () => {
+          const statusRes = await fetch(`/api/generate?jobId=${data.jobId}`);
+          const statusData = await statusRes.json();
+
+          if (statusData.status === 'succeeded') {
+            setResult(statusData.result);
+            setIsGenerating(false);
+            return;
+          }
+
+          if (statusData.status === 'failed') {
+            setResult({ error: statusData.error || 'Generation failed' });
+            setIsGenerating(false);
+            return;
+          }
+
+          setTimeout(poll, 2000);
+        };
+
+        setTimeout(poll, 1200);
+      } else {
+        setResult(data);
+      }
     } catch (error) {
       console.error('Generation failed:', error);
       setResult({ error: 'Failed to generate SaaS' });
     } finally {
-      setIsGenerating(false);
+      if (!startedAsyncPolling) {
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -95,6 +214,7 @@ export default function Home() {
               From idea to deployed SaaS in minutes
             </p>
           </div>
+
 
           {/* Form */}
           <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700">
@@ -114,6 +234,22 @@ export default function Home() {
                   <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${advanced ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-700 bg-gray-900/20 px-4 py-3">
+                <div>
+                  <p className="font-semibold">Async generation</p>
+                  <p className="text-sm text-gray-400">Runs in background with progress polling for faster UX.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAsyncMode((v) => !v)}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${asyncMode ? 'bg-blue-600' : 'bg-gray-700'}`}
+                  aria-pressed={asyncMode}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${asyncMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
               {/* Project Name */}
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
@@ -167,6 +303,66 @@ export default function Home() {
 
               {advanced && (
                 <div className="rounded-2xl border border-gray-700 bg-gray-900/40 p-5 space-y-4">
+                  <div className="rounded-xl border border-gray-700 bg-gray-950/50 p-4 space-y-4">
+                    <div>
+                      <p className="font-semibold">Integrations</p>
+                      <p className="text-sm text-gray-400">Paste Vercel/Turso tokens so Codex can test connectivity, or leave blank to use server env tokens.</p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label htmlFor="vercelToken" className="mb-2 block text-sm font-medium text-gray-300">Vercel Token</label>
+                        <input
+                          id="vercelToken"
+                          type="password"
+                          value={vercelToken}
+                          onChange={(e) => setVercelToken(e.target.value)}
+                          placeholder="vercel_xxx"
+                          className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="tursoToken" className="mb-2 block text-sm font-medium text-gray-300">Turso Token</label>
+                        <input
+                          id="tursoToken"
+                          type="password"
+                          value={tursoToken}
+                          onChange={(e) => setTursoToken(e.target.value)}
+                          placeholder="turso_xxx"
+                          className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <button
+                        type="button"
+                        onClick={testIntegrations}
+                        disabled={isTestingIntegrations}
+                        className="rounded-lg border border-gray-600 bg-gray-900 px-4 py-2 text-sm font-semibold hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isTestingIntegrations ? 'Testing…' : 'Test Vercel + Turso'}
+                      </button>
+                      {integrationStatus && (
+                        <div className="text-sm text-gray-300">
+                          <span className={integrationStatus.vercel.connected ? 'text-green-400' : 'text-red-400'}>
+                            Vercel: {integrationStatus.vercel.connected ? 'connected' : 'failed'}
+                          </span>
+                          {' • '}
+                          <span className={integrationStatus.turso.connected ? 'text-green-400' : 'text-red-400'}>
+                            Turso: {integrationStatus.turso.connected ? 'connected' : 'failed'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected) && (
+                      <div className="rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-200">
+                        {!integrationStatus.vercel.connected && <p>{integrationStatus.vercel.error}</p>}
+                        {!integrationStatus.turso.connected && <p>{integrationStatus.turso.error}</p>}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-semibold">Requirements</p>
@@ -198,6 +394,70 @@ export default function Home() {
                 </div>
               )}
 
+
+              {/* Output Preview */}
+              <div className="rounded-2xl border border-indigo-700/50 bg-indigo-950/20 p-5 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">Live output preview</p>
+                    <p className="text-sm text-gray-400">Visualize what LaunchKit will generate before deploy.</p>
+                  </div>
+                  <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTab('landing')}
+                      className={`rounded-md px-3 py-1 transition ${previewTab === 'landing' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-800'}`}
+                    >
+                      Landing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTab('app')}
+                      className={`rounded-md px-3 py-1 transition ${previewTab === 'app' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-800'}`}
+                    >
+                      App UI
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-gray-700 bg-gray-900 p-4">
+                  {previewTab === 'landing' ? (
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-indigo-500/30 bg-gradient-to-r from-indigo-900/50 to-purple-900/40 p-4">
+                        <p className="text-xs uppercase tracking-wider text-indigo-300">{previewType}</p>
+                        <h3 className="mt-1 text-2xl font-bold text-white">{previewName}</h3>
+                        <p className="mt-2 text-sm text-gray-300">{formData.description.trim() || 'AI-powered product experience generated from your prompt.'}</p>
+                        <div className="mt-4 flex items-center gap-4">
+                          <button type="button" className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold">Start free trial</button>
+                          <p className="text-sm text-gray-300">From <span className="font-semibold text-white">${previewPrice}/mo</span></p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs text-gray-300">
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-2">✅ Onboarding flow</div>
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-2">✅ Billing & checkout</div>
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-2">✅ Health + ready checks</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between rounded-md border border-gray-700 bg-gray-950 p-3">
+                        <div>
+                          <p className="font-semibold">{previewName} workspace</p>
+                          <p className="text-xs text-gray-400">Operator dashboard preview</p>
+                        </div>
+                        <span className="rounded-full bg-emerald-900/40 px-2 py-1 text-xs text-emerald-300">Revenue ready</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">MRR widget</div>
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">Trial conversion funnel</div>
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">Recent signups</div>
+                        <div className="rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">Action center</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Submit Button */}
               <button
                 type="submit"
@@ -220,6 +480,12 @@ export default function Home() {
               </button>
             </form>
           </div>
+
+          {isGenerating && asyncMode && jobId && (
+            <div className="mt-6 rounded-xl border border-blue-700 bg-blue-950/30 p-4 text-sm text-blue-200">
+              Background generation running. Tracking job: <span className="font-mono">{jobId}</span>
+            </div>
+          )}
 
           {/* Result */}
           {result && (
@@ -248,6 +514,18 @@ export default function Home() {
                         {result.url}
                       </a>
                     </div>
+
+
+                    {result.vercelLinkedRepo !== undefined && (
+                      <div className="bg-gray-900 p-4 rounded-lg">
+                        <p className="text-gray-400 text-sm mb-1">Vercel Git Integration</p>
+                        <p className={result.vercelLinkedRepo ? 'text-green-400' : 'text-yellow-300'}>
+                          {result.vercelLinkedRepo
+                            ? 'Linked directly to the newly created GitHub repo (no manual clone/import needed).'
+                            : 'Auto-linking failed; use manual import fallback below.'}
+                        </p>
+                      </div>
+                    )}
 
                     {result.stripeUrl && (
                       <div className="bg-gray-900 p-4 rounded-lg">
@@ -288,6 +566,56 @@ export default function Home() {
                         >
                           ▲ Deploy to Vercel
                         </a>
+                      </div>
+                    )}
+
+                    {result.verification && (
+                      <div className="bg-gray-900 p-4 rounded-lg">
+                        <p className="text-gray-400 text-sm mb-1">Deployment Verification</p>
+                        <p className={result.verification.passed ? 'text-green-400' : 'text-yellow-300'}>
+                          {result.verification.passed ? 'All post-deploy functional checks passed' : result.verification.pending ? 'Verification pending deployment propagation' : 'Verification warnings detected'}
+                        </p>
+                        {!result.verification.passed && (
+                          <ul className="mt-2 text-xs text-yellow-200 list-disc pl-5">
+                            {result.verification.errors.map((err) => (<li key={err}>{err}</li>))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+
+                    {result.revenueReadiness && (
+                      <div className="bg-gray-900 p-4 rounded-lg space-y-2">
+                        <p className="text-gray-400 text-sm">Revenue Readiness Score</p>
+                        <p className="text-xl font-semibold text-green-400">{result.revenueReadiness.score}%</p>
+                        <div className="text-xs text-gray-300 grid grid-cols-2 gap-1">
+                          <span>Billing: {result.revenueReadiness.checks.billing ? '✅' : '❌'}</span>
+                          <span>Auth: {result.revenueReadiness.checks.authentication ? '✅' : '❌'}</span>
+                          <span>Database: {result.revenueReadiness.checks.database ? '✅' : '❌'}</span>
+                          <span>Deployment: {result.revenueReadiness.checks.deployment ? '✅' : '❌'}</span>
+                          <span>Onboarding: {result.revenueReadiness.checks.onboarding ? '✅' : '❌'}</span>
+                          <span>Analytics: {result.revenueReadiness.checks.analytics ? '✅' : '❌'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {result.stats && (
+                      <div className="bg-gray-900 p-4 rounded-lg text-xs text-gray-300 space-y-1">
+                        <p>Generation Duration: {Math.round(result.stats.durationMs / 1000)}s</p>
+                        <p>Uploaded Files: {result.stats.totalFiles - result.stats.failedFiles.length}/{result.stats.totalFiles}</p>
+                        {result.stats.failedFiles.length > 0 && (
+                          <p className="text-yellow-300">Failed files: {result.stats.failedFiles.join(', ')}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {result.remediation && result.remediation.length > 0 && (
+                      <div className="bg-gray-900 p-4 rounded-lg text-xs text-gray-300">
+                        <p className="mb-2 font-semibold text-yellow-300">Suggested remediation commands</p>
+                        <ul className="space-y-1 list-disc pl-5">
+                          {result.remediation.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>
