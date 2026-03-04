@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
 type ProviderStatus = {
   connected: boolean;
@@ -6,6 +7,10 @@ type ProviderStatus = {
 };
 
 export async function POST(request: Request) {
+  const limit = checkRateLimit(requestKey(request));
+  if (!limit.ok) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please retry shortly.' }, { status: 429 });
+  }
   try {
     const body = await request.json().catch(() => ({}));
     const vercelToken = (body.vercelToken as string | undefined)?.trim() || process.env.VERCEL_TOKEN;

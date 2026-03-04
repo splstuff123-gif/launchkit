@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
 type RequirementPriority = 'must' | 'should' | 'could';
 
@@ -99,6 +100,45 @@ function inferSpec(name: string, description: string): ProductSpec {
   };
 }
 
+async function inferSpecWithLLM(name: string, description: string): Promise<ProductSpec | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Return ONLY valid JSON for ProductSpec v2 with fields: version, productName, productDescription, entities, userRoles, workflows, monetization, analyticsEvents, requirements.',
+          },
+          {
+            role: 'user',
+            content: `Name: ${name}\nDescription: ${description}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    return JSON.parse(content) as ProductSpec;
+  } catch {
+    return null;
+  }
+}
+
 function validateSpec(spec: ProductSpec): string[] {
   const errors: string[] = [];
   if (!spec.productName) errors.push('productName is required');
@@ -112,6 +152,11 @@ function validateSpec(spec: ProductSpec): string[] {
 }
 
 export async function POST(request: Request) {
+  const limit = checkRateLimit(requestKey(request));
+  if (!limit.ok) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please retry shortly.' }, { status: 429 });
+  }
+
   try {
     const { name, description } = await request.json();
 
@@ -119,17 +164,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing description' }, { status: 400 });
     }
 
-    let spec = inferSpec(String(name || ''), String(description || ''));
+    let spec = (await inferSpecWithLLM(String(name || ''), String(description || ''))) ||
+      inferSpec(String(name || ''), String(description || ''));
 
-    // Fail/repair loop: if schema validation fails, apply minimal repair once.
     let errors = validateSpec(spec);
     if (errors.length > 0) {
       spec = {
         ...spec,
-        entities: spec.entities.length ? spec.entities : [{ name: 'Item', fields: ['name'] }],
-        userRoles: spec.userRoles.length ? spec.userRoles : ['admin', 'member'],
-        workflows: spec.workflows.length ? spec.workflows : ['Core workflow'],
-        requirements: spec.requirements.length
+        entities: spec.entities?.length ? spec.entities : [{ name: 'Item', fields: ['name'] }],
+        userRoles: spec.userRoles?.length ? spec.userRoles : ['admin', 'member'],
+        workflows: spec.workflows?.length ? spec.workflows : ['Core workflow'],
+        requirements: spec.requirements?.length
           ? spec.requirements
           : [
               {

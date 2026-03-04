@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 import { Octokit } from '@octokit/rest';
 import { selectTemplate, generateTemplate } from '@/lib/templates';
 import { createTursoDatabase, initializeTursoSchema } from '@/lib/database-turso';
@@ -203,7 +204,7 @@ async function runGeneration(payload: { name: string; description: string; price
 
   const uploadFile = async ([path, content]: [string, string]) => {
     try {
-      let sha;
+      let sha: string | undefined;
       try {
         const { data: existingFile } = await octokit.repos.getContent({
           owner: GITHUB_USERNAME,
@@ -260,7 +261,7 @@ async function runGeneration(payload: { name: string; description: string; price
   });
 
   let deployedUrl = `https://${repoName}.vercel.app`;
-  let projectId = null;
+  let projectId: string | null = null;
 
   if (vercelProject.ok) {
     const projectData = await vercelProject.json();
@@ -409,6 +410,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const limit = checkRateLimit(requestKey(request));
+  if (!limit.ok) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please retry shortly.' }, { status: 429 });
+  }
   try {
     const payload = await request.json();
 
