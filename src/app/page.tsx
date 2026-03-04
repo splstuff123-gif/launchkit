@@ -2,26 +2,76 @@
 
 import { useState } from 'react';
 
+import type { RequirementsDoc } from '@/lib/requirements';
+
 export default function Home() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: '',
   });
+
+  const [advanced, setAdvanced] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [isReqGenerating, setIsReqGenerating] = useState(false);
+  const [requirementsDoc, setRequirementsDoc] = useState<RequirementsDoc | null>(null);
+  const [requirementsText, setRequirementsText] = useState('');
+
+  type GenerateResponse = {
+    error?: string;
+    url?: string;
+    stripeUrl?: string;
+    supabaseUrl?: string;
+    vercelImportUrl?: string;
+  };
+
+  const [result, setResult] = useState<GenerateResponse | null>(null);
+
+  const generateRequirements = async () => {
+    setIsReqGenerating(true);
+    setResult(null);
+    try {
+      const response = await fetch('/api/requirements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: formData.name, description: formData.description }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      setRequirementsDoc(data.doc);
+      // Simple text view for now (editable)
+      const text = (data.doc.requirements || [])
+        .map((r: { priority: string; title: string; description?: string }) =>
+          `- [${r.priority}] ${r.title}${r.description ? ` - ${r.description}` : ''}`
+        )
+        .join('\n');
+      setRequirementsText(text);
+    } catch (e: unknown) {
+      console.error('Requirements generation failed:', e);
+      const msg = e instanceof Error ? e.message : 'Failed to generate requirements';
+      setResult({ error: msg });
+    } finally {
+      setIsReqGenerating(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGenerating(true);
-    
+
     try {
+      const payload: Record<string, unknown> = { ...formData };
+      if (advanced) {
+        payload.requirements = requirementsText;
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
-      
+
       const data = await response.json();
       setResult(data);
     } catch (error) {
@@ -49,6 +99,21 @@ export default function Home() {
           {/* Form */}
           <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700">
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Advanced toggle */}
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-700 bg-gray-900/40 px-4 py-3">
+                <div>
+                  <p className="font-semibold">Advanced</p>
+                  <p className="text-sm text-gray-400">Generate requirements → review/edit → build to spec</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdvanced(v => !v)}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${advanced ? 'bg-blue-600' : 'bg-gray-700'}`}
+                  aria-pressed={advanced}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${advanced ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
               {/* Project Name */}
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
@@ -100,10 +165,43 @@ export default function Home() {
                 </div>
               </div>
 
+              {advanced && (
+                <div className="rounded-2xl border border-gray-700 bg-gray-900/40 p-5 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold">Requirements</p>
+                      <p className="text-sm text-gray-400">Generate a first draft, then edit manually or by prompting.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={generateRequirements}
+                      disabled={isReqGenerating || !formData.description}
+                      className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-600 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isReqGenerating ? 'Generating…' : 'Generate requirements'}
+                    </button>
+                  </div>
+
+                  <textarea
+                    value={requirementsText}
+                    onChange={(e) => setRequirementsText(e.target.value)}
+                    placeholder="Click 'Generate requirements' or paste your own.\n\nExample:\n- [must] Authentication - Users can sign up/login\n- [must] Billing - Stripe subscriptions\n- [should] Team accounts - Invite members"
+                    rows={8}
+                    className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500"
+                  />
+
+                  {requirementsDoc && (
+                    <div className="text-xs text-gray-400">
+                      Draft generated from your description. You can edit freely before deploying.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isGenerating}
+                disabled={isGenerating || (advanced && !requirementsText.trim())}
                 className="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded-lg font-semibold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
               >
                 {isGenerating ? (
@@ -114,6 +212,8 @@ export default function Home() {
                     </svg>
                     Generating & Deploying...
                   </span>
+                ) : advanced ? (
+                  '🚀 Generate & Deploy (from requirements)'
                 ) : (
                   '🚀 Generate & Deploy'
                 )}
