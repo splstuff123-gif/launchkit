@@ -130,7 +130,7 @@ LaunchKit now uses **Turso** instead of Supabase for:
 6. Initializes database schema
 7. Creates Vercel project
 8. Sets environment variables
-9. Triggers deployment
+9. Links the new GitHub repo to Vercel and triggers deployment (no manual clone/import in normal flow)
 10. Runs post-deploy functional checks (health, DB ping, auth status, pricing page, checkout endpoint)
 11. Returns live URL + remediation guidance + readiness/verification metrics
 12. Supports async generation mode with job polling for progress tracking

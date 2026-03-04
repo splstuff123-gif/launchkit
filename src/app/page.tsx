@@ -52,6 +52,8 @@ export default function Home() {
       durationMs: number;
     };
     remediation?: string[];
+    vercelLinkedRepo?: boolean;
+    manualImportRequired?: boolean;
   };
 
   type IntegrationStatus = {
@@ -431,6 +433,18 @@ export default function Home() {
                         {result.url}
                       </a>
                     </div>
+
+
+                    {result.vercelLinkedRepo !== undefined && (
+                      <div className="bg-gray-900 p-4 rounded-lg">
+                        <p className="text-gray-400 text-sm mb-1">Vercel Git Integration</p>
+                        <p className={result.vercelLinkedRepo ? 'text-green-400' : 'text-yellow-300'}>
+                          {result.vercelLinkedRepo
+                            ? 'Linked directly to the newly created GitHub repo (no manual clone/import needed).'
+                            : 'Auto-linking failed; use manual import fallback below.'}
+                        </p>
+                      </div>
+                    )}
 
                     {result.stripeUrl && (
                       <div className="bg-gray-900 p-4 rounded-lg">

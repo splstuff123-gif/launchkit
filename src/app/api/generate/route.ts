@@ -347,6 +347,8 @@ async function runGeneration(payload: { name: string; description: string; price
   let deployedUrl = `https://${repoName}.vercel.app`;
   let projectId: string | null = null;
   let deploymentId: string | null = null;
+  let vercelLinkedRepo = false;
+  let manualImportRequired = false;
 
   if (vercelProject.ok) {
     const projectData = await vercelProject.json();
@@ -401,6 +403,7 @@ async function runGeneration(payload: { name: string; description: string; price
     });
 
     if (linkRepo.ok) {
+      vercelLinkedRepo = true;
       await sleep(2000);
       const vercelDeploy = await fetch('https://api.vercel.com/v13/deployments', {
         method: 'POST',
@@ -424,8 +427,14 @@ async function runGeneration(payload: { name: string; description: string; price
         const deployData = await vercelDeploy.json();
         deploymentId = deployData.id || null;
         deployedUrl = `https://${deployData.url}`;
+      } else {
+        manualImportRequired = true;
       }
+    } else {
+      manualImportRequired = true;
     }
+  } else {
+    manualImportRequired = true;
   }
 
   setStep('Running post-deploy functional verification', 90);
@@ -476,7 +485,9 @@ async function runGeneration(payload: { name: string; description: string; price
     success: true,
     url: deployedUrl,
     githubUrl: repo.html_url,
-    vercelImportUrl: `https://vercel.com/new/clone?repository-url=${encodeURIComponent(repo.html_url)}`,
+    vercelImportUrl: manualImportRequired
+      ? `https://vercel.com/new/clone?repository-url=${encodeURIComponent(repo.html_url)}`
+      : undefined,
     tursoUrl,
     stats: {
       totalFiles: fileEntries.length,
@@ -486,6 +497,8 @@ async function runGeneration(payload: { name: string; description: string; price
     verification,
     revenueReadiness,
     remediation,
+    vercelLinkedRepo,
+    manualImportRequired,
     message: tursoConfig
       ? 'SaaS created successfully! Database is configured and ready.'
       : 'SaaS created! Set up Turso database manually (see README).',
