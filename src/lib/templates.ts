@@ -34,7 +34,7 @@ export function selectTemplate(description: string): string {
 }
 
 export function generateTemplate(templateType: string, name: string, description: string, price: string) {
-  const generators: Record<string, Function> = {
+  const generators: Record<string, (name: string, description: string, price: string) => Record<string, string>> = {
     'task-manager': generatePremiumTaskManagerTurso,
     'fitness': generatePremiumTaskManagerTurso,
     'crm': generatePremiumTaskManagerTurso,

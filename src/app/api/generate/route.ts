@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
 import { selectTemplate, generateTemplate } from '@/lib/templates';
 import { createTursoDatabase, initializeTursoSchema } from '@/lib/database-turso';
+import { parseRequirementsText } from '@/lib/requirements';
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
 const GITHUB_USERNAME = process.env.GITHUB_USERNAME!;
@@ -10,9 +11,9 @@ const TURSO_TOKEN = process.env.TURSO_TOKEN!;
 
 export async function POST(request: Request) {
   try {
-    const { name, description, price } = await request.json();
-    
-    console.log('🚀 Starting deployment:', { name, description, price });
+    const { name, description, price, requirements } = await request.json();
+
+    console.log('🚀 Starting deployment:', { name, description, price, hasRequirements: !!requirements });
 
     // Step 1: Create GitHub repo
     console.log('📦 Creating GitHub repository...');
@@ -28,8 +29,9 @@ export async function POST(request: Request) {
         auto_init: true,
       });
       repo = data;
-    } catch (error: any) {
-      if (error.message?.includes('name already exists')) {
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : '';
+      if (msg.includes('name already exists')) {
         // Repo exists, add timestamp to make it unique
         repoName = `${repoName}-${Date.now()}`;
         const { data } = await octokit.repos.createForAuthenticatedUser({
@@ -48,9 +50,26 @@ export async function POST(request: Request) {
 
     // Step 2: Generate boilerplate code
     console.log('📝 Generating code...');
-    const templateType = selectTemplate(description);
+
+    // If requirements are provided, bake them into the prompt/description for template selection.
+    let effectiveDescription = description as string;
+    if (requirements) {
+      try {
+        const doc = parseRequirementsText(String(requirements));
+        const reqLines = doc.requirements
+          .slice(0, 20)
+          .map(r => `- [${r.priority}] ${r.title}${r.description ? `: ${r.description}` : ''}`)
+          .join('\n');
+        effectiveDescription = `${description}\n\nAPPROVED REQUIREMENTS:\n${reqLines}`;
+      } catch (e) {
+        // If parsing fails, still include raw text
+        effectiveDescription = `${description}\n\nAPPROVED REQUIREMENTS (raw):\n${String(requirements)}`;
+      }
+    }
+
+    const templateType = selectTemplate(effectiveDescription);
     console.log(`📋 Selected template: ${templateType}`);
-    const files = generateTemplate(templateType, name, description, price);
+    const files = generateTemplate(templateType, name, effectiveDescription, price);
     
     // Step 3: Create Turso database
     console.log('🗄️  Creating Turso database...');
@@ -230,12 +249,13 @@ export async function POST(request: Request) {
         : 'SaaS created! Set up Turso database manually (see README).',
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('❌ Generation error:', error);
+    const msg = error instanceof Error ? error.message : 'Failed to generate SaaS';
     return NextResponse.json(
-      { 
-        error: error.message || 'Failed to generate SaaS',
-        details: error.response?.data || error.toString(),
+      {
+        error: msg,
+        details: String(error),
       },
       { status: 500 }
     );
