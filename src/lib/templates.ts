@@ -121,8 +121,10 @@ export async function POST(request: Request) {
     'src/app/billing/page.tsx': `'use client';
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 export default function BillingPage() {
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,6 +137,17 @@ export default function BillingPage() {
     ],
     []
   );
+
+  const testimonials = useMemo(
+    () => [
+      '"We activated our team in under an hour." — Ops Lead',
+      '"Checkout setup was painless and started converting on day one." — Founder',
+    ],
+    []
+  );
+
+  const checkoutSuccess = searchParams.get('success') === '1';
+  const checkoutCanceled = searchParams.get('canceled') === '1';
 
   const handleCheckout = async () => {
     setIsLoading(true);
@@ -165,6 +178,17 @@ export default function BillingPage() {
           </p>
           <h1 className="mb-3 text-4xl font-bold">${name} Pro</h1>
           <p className="mb-6 text-slate-300">${profileLabel} pricing optimized for conversion and retention.</p>
+
+          {checkoutSuccess && (
+            <p className="mb-4 rounded-lg border border-emerald-700 bg-emerald-900/40 px-3 py-2 text-sm text-emerald-200">
+              Checkout completed. Activate your workspace and verify webhook events.
+            </p>
+          )}
+          {checkoutCanceled && (
+            <p className="mb-4 rounded-lg border border-amber-700 bg-amber-900/30 px-3 py-2 text-sm text-amber-100">
+              Checkout canceled. You can restart anytime with your trial preserved.
+            </p>
+          )}
 
           <div className="mb-6 flex items-end gap-2">
             <span className="text-5xl font-bold">$${price}</span>
@@ -204,34 +228,82 @@ export default function BillingPage() {
               <li>Run smoke checks and complete onboarding flow.</li>
             </ol>
           </div>
+
+          <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/40 p-4 text-sm text-slate-300">
+            <p className="font-semibold text-white">Customer proof</p>
+            <ul className="mt-2 space-y-2">
+              {testimonials.map((quote) => (
+                <li key={quote}>{quote}</li>
+              ))}
+            </ul>
+          </div>
         </section>
       </div>
     </main>
   );
 }
 `,
-    'src/app/onboarding/page.tsx': `export default function OnboardingPage() {
-  const steps = [
-    { title: 'Connect your workspace', detail: 'Invite teammates and set permissions in under 2 minutes.' },
-    { title: 'Import your first data set', detail: 'Use CSV import or API sync to populate your dashboard quickly.' },
-    { title: 'Launch billing', detail: 'Enable Stripe, confirm plans, and validate checkout conversion.' },
-  ];
+    'src/app/onboarding/page.tsx': `'use client';
+
+import { useMemo, useState } from 'react';
+
+export default function OnboardingPage() {
+  const steps = useMemo(
+    () => [
+      { title: 'Connect your workspace', detail: 'Invite teammates and set permissions in under 2 minutes.' },
+      { title: 'Import your first data set', detail: 'Use CSV import or API sync to populate your dashboard quickly.' },
+      { title: 'Launch billing', detail: 'Enable Stripe, confirm plans, and validate checkout conversion.' },
+    ],
+    []
+  );
+  const [completed, setCompleted] = useState<number[]>([]);
+
+  const progress = Math.round((completed.length / steps.length) * 100);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-4xl px-6 py-16">
         <p className="mb-2 text-sm uppercase tracking-wider text-blue-300">First-run UX</p>
         <h1 className="mb-3 text-4xl font-bold">Welcome to ${name}</h1>
-        <p className="mb-10 text-slate-300">A guided onboarding flow designed to reduce time-to-value and improve paid conversion.</p>
+        <p className="mb-6 text-slate-300">A guided onboarding flow designed to reduce time-to-value and improve paid conversion.</p>
+
+        <div className="mb-8 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <p className="text-sm text-slate-300">Activation progress</p>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+            <div className="h-full bg-blue-500" style={{ width: progress + '%' }} />
+          </div>
+          <p className="mt-2 text-xs text-slate-400">{completed.length}/{steps.length} completed ({progress}%)</p>
+        </div>
 
         <div className="space-y-4">
-          {steps.map((step, index) => (
-            <section key={step.title} className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-              <p className="text-xs font-semibold text-blue-300">Step {index + 1}</p>
-              <h2 className="mt-1 text-xl font-semibold">{step.title}</h2>
-              <p className="mt-2 text-slate-300">{step.detail}</p>
-            </section>
-          ))}
+          {steps.map((step, index) => {
+            const done = completed.includes(index);
+            return (
+              <section key={step.title} className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold text-blue-300">Step {index + 1}</p>
+                    <h2 className="mt-1 text-xl font-semibold">{step.title}</h2>
+                    <p className="mt-2 text-slate-300">{step.detail}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCompleted((prev) => (done ? prev.filter((item) => item !== index) : [...prev, index]))
+                    }
+                    className={done ? 'rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white' : 'rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700'}
+                  >
+                    {done ? 'Completed' : 'Mark done'}
+                  </button>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <a href="/" className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-900">Go to app</a>
+          <a href="/billing" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold hover:bg-blue-500">Continue to billing</a>
         </div>
       </div>
     </main>
@@ -264,6 +336,7 @@ const checks = [
   '/api/auth/status',
   '/api/ready',
   '/billing',
+  '/onboarding',
 ];
 
 for (const path of checks) {
@@ -278,7 +351,7 @@ console.log('Smoke checks passed');
 `,
     '.github/workflows/ci.yml': `name: CI\n\non:\n  push:\n    branches: [ main ]\n  pull_request:\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '20'\n      - run: npm ci\n      - run: npm run lint\n      - run: npm run build\n`,
     'UX_PLAYBOOK.md': `# UX / Conversion Playbook\n\nUse this generated product as a starting point for a high-converting SaaS UX:\n\n## Core UX principles\n- Keep first-value time under 5 minutes (guided onboarding + sample data).\n- Always show a next-best action on empty states.\n- Surface trust signals before the paywall (uptime, support SLA, testimonials).\n- Keep billing transparent with one clear primary CTA and low-friction trial copy.\n\n## Recommended experiments\n1. Add role-specific onboarding paths (founder, operator, analyst).\n2. A/B test CTA copy on pricing and empty-state buttons.\n3. Add event tracking for: onboarding_started, onboarding_completed, checkout_started, checkout_completed.\n4. Build win-back nudges for trial users with no activation in 48h.\n\n## Accessibility checklist\n- Ensure all forms have labels and keyboard focus styles.\n- Keep color contrast WCAG AA for body text and actionable controls.\n- Provide non-color status indicators for success/error states.\n`,
-    'LAUNCH_CHECKLIST.md': `# Launch Checklist\n\n- [ ] Configure Stripe env vars (STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET)\n- [ ] Configure Turso env vars (TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)\n- [ ] Run smoke checks (npm run test:smoke)\n- [ ] Verify /api/ready returns ok: true\n- [ ] Confirm billing checkout works in Stripe test mode\n`,
+    'LAUNCH_CHECKLIST.md': `# Launch Checklist\n\n- [ ] Configure Stripe env vars (STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET)\n- [ ] Configure Turso env vars (TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)\n- [ ] Run smoke checks (npm run test:smoke)\n- [ ] Verify /api/ready returns ok: true\n- [ ] Confirm billing checkout works in Stripe test mode\n- [ ] Complete onboarding flow and capture activation screenshots\n`,
     'PRIVACY.md': `# Privacy Policy\n\nThis generated product includes a default privacy policy template. Replace with counsel-approved policy before production launch.\n`,
     'TERMS.md': `# Terms of Service\n\nThis generated product includes a default terms template. Replace with counsel-approved terms before production launch.\n`,
     'src/lib/rate-limit.ts': `const windowMs = 60_000;
