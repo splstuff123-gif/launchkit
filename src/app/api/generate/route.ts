@@ -31,6 +31,15 @@ async function retry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 600): Prom
   throw lastError;
 }
 
+async function vercelFetchJson<T = unknown>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`https://api.vercel.com${path}`, init);
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Vercel API ${path} failed: ${response.status} ${details}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 type DeploymentVerification = {
   passed: boolean;
   checks: {
@@ -332,26 +341,25 @@ async function runGeneration(payload: { name: string; description: string; price
 
   setStep('Deploying on Vercel', 75);
 
-  const vercelProject = await fetch('https://api.vercel.com/v9/projects', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${VERCEL_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: repoName,
-      framework: 'nextjs',
-    }),
-  });
-
   let deployedUrl = `https://${repoName}.vercel.app`;
   let projectId: string | null = null;
   let deploymentId: string | null = null;
   let vercelLinkedRepo = false;
   let manualImportRequired = false;
 
-  if (vercelProject.ok) {
-    const projectData = await vercelProject.json();
+  try {
+    const projectData = await vercelFetchJson<{ id: string }>('/v9/projects', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${VERCEL_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: repoName,
+        framework: 'nextjs',
+      }),
+    });
+
     projectId = projectData.id;
 
     const envVars = [
@@ -373,13 +381,13 @@ async function runGeneration(payload: { name: string; description: string; price
       try {
         await retry(
           () =>
-            fetch(`https://api.vercel.com/v10/projects/${projectId}/env`, {
+            vercelFetchJson(`/v10/projects/${projectId}/env`, {
               method: 'POST',
               headers: {
                 Authorization: `Bearer ${VERCEL_TOKEN}`,
                 'Content-Type': 'application/json',
               },
-              body: JSON.stringify(envVar),
+              body: JSON.stringify({ ...envVar, upsert: true }),
             }),
           3,
           400
@@ -389,7 +397,7 @@ async function runGeneration(payload: { name: string; description: string; price
       }
     }
 
-    const linkRepo = await fetch(`https://api.vercel.com/v9/projects/${projectId}/link`, {
+    await vercelFetchJson(`/v9/projects/${projectId}/link`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${VERCEL_TOKEN}`,
@@ -402,38 +410,29 @@ async function runGeneration(payload: { name: string; description: string; price
       }),
     });
 
-    if (linkRepo.ok) {
-      vercelLinkedRepo = true;
-      await sleep(2000);
-      const vercelDeploy = await fetch('https://api.vercel.com/v13/deployments', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${VERCEL_TOKEN}`,
-          'Content-Type': 'application/json',
+    vercelLinkedRepo = true;
+    await sleep(2000);
+    const deployData = await vercelFetchJson<{ id?: string; url: string }>('/v13/deployments', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${VERCEL_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: repoName,
+        project: projectId,
+        target: 'production',
+        gitSource: {
+          type: 'github',
+          repoId: repo.id,
+          ref: 'main',
         },
-        body: JSON.stringify({
-          name: repoName,
-          project: projectId,
-          target: 'production',
-          gitSource: {
-            type: 'github',
-            repoId: repo.id,
-            ref: 'main',
-          },
-        }),
-      });
+      }),
+    });
 
-      if (vercelDeploy.ok) {
-        const deployData = await vercelDeploy.json();
-        deploymentId = deployData.id || null;
-        deployedUrl = `https://${deployData.url}`;
-      } else {
-        manualImportRequired = true;
-      }
-    } else {
-      manualImportRequired = true;
-    }
-  } else {
+    deploymentId = deployData.id || null;
+    deployedUrl = `https://${deployData.url}`;
+  } catch {
     manualImportRequired = true;
   }
 
@@ -458,11 +457,14 @@ async function runGeneration(payload: { name: string; description: string; price
   const hasOnboarding = /onboarding|empty state|first-run|tutorial/i.test(effectiveDescription) || Boolean(requirements);
   const hasAnalyticsEvents = /analytics|event|track|funnel/i.test(effectiveDescription);
 
+  const deploymentCoreOk = verification.checks.homepage && verification.checks.healthEndpoint;
+  const databaseOk = verification.checks.dbRoundtrip || Boolean(tursoConfig);
+
   const revenueReadiness = calculateRevenueReadiness({
     hasBillingSignals,
     hasAuthSignals,
-    hasDatabase: Boolean(tursoConfig),
-    deploymentVerified: verification.passed,
+    hasDatabase: databaseOk,
+    deploymentVerified: deploymentCoreOk,
     hasOnboarding,
     hasAnalyticsEvents,
   });
