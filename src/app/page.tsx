@@ -98,8 +98,9 @@ export default function Home() {
 
   const [asyncMode, setAsyncMode] = useState(true);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [previewTab, setPreviewTab] = useState<'landing' | 'app'>('landing');
+  const [previewTab, setPreviewTab] = useState<'landing' | 'app' | 'figma'>('landing');
   const [figmaMockupBrief, setFigmaMockupBrief] = useState<{ prompt: string; figmaUrl: string } | null>(null);
+  const [figmaEmbedUrl, setFigmaEmbedUrl] = useState('');
 
   const previewName = formData.name.trim() || 'Your SaaS';
   const previewPrice = formData.price.trim() || '29';
@@ -223,6 +224,7 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
 
       setFigmaMockupBrief({ prompt: data.figmaPrompt, figmaUrl: data.figmaUrl });
+      setPreviewTab('figma');
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to generate Figma mockup brief';
       setResult({ error: msg });
@@ -547,6 +549,18 @@ export default function Home() {
                     </div>
                   )}
 
+                  <div className="rounded-lg border border-indigo-800 bg-indigo-950/20 p-3 text-xs text-indigo-100 space-y-2">
+                    <p className="font-semibold">Figma embed URL (optional)</p>
+                    <input
+                      type="url"
+                      value={figmaEmbedUrl}
+                      onChange={(e) => setFigmaEmbedUrl(e.target.value)}
+                      placeholder="https://www.figma.com/file/... or /design/..."
+                      className="w-full rounded-lg border border-gray-600 bg-gray-900 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-indigo-300">Paste a share URL from Figma to render it in the preview tab.</p>
+                  </div>
+
                   {requirementsDoc && (
                     <div className="space-y-3">
                       <div className="text-xs text-gray-400">
@@ -607,6 +621,13 @@ export default function Home() {
                     >
                       App UI
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTab('figma')}
+                      className={`rounded-md px-3 py-1 transition ${previewTab === 'figma' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-800'}`}
+                    >
+                      Figma
+                    </button>
                   </div>
                 </div>
 
@@ -628,6 +649,22 @@ export default function Home() {
                         <div className="rounded-md border border-gray-700 bg-gray-950 p-2">✅ Health + ready checks</div>
                       </div>
                     </div>
+                  ) : previewTab === 'figma' ? (
+                    figmaEmbedUrl.trim() ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-400">Embedded Figma preview</p>
+                        <iframe
+                          title="Figma mockup preview"
+                          src={`https://www.figma.com/embed?embed_host=launchkit&url=${encodeURIComponent(figmaEmbedUrl)}`}
+                          className="h-[460px] w-full rounded-lg border border-gray-700 bg-gray-950"
+                          allowFullScreen
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-gray-700 bg-gray-950 p-4 text-sm text-gray-300">
+                        Add a Figma share URL above to render the mockup here.
+                      </div>
+                    )
                   ) : (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between rounded-md border border-gray-700 bg-gray-950 p-3">
