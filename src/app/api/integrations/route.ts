@@ -16,15 +16,18 @@ export async function POST(request: Request) {
     const vercelToken = (body.vercelToken as string | undefined)?.trim() || process.env.VERCEL_TOKEN;
     const tursoToken = (body.tursoToken as string | undefined)?.trim() || process.env.TURSO_TOKEN;
     const openAiKey = (body.openAiKey as string | undefined)?.trim() || process.env.OPENAI_API_KEY;
+    const figmaToken = (body.figmaToken as string | undefined)?.trim() || process.env.FIGMA_TOKEN;
 
     const result: {
       vercel: ProviderStatus;
       turso: ProviderStatus;
       openai: ProviderStatus;
+      figma: ProviderStatus;
     } = {
       vercel: { connected: false },
       turso: { connected: false },
       openai: { connected: false },
+      figma: { connected: false },
     };
 
     if (!vercelToken) {
@@ -94,8 +97,31 @@ export async function POST(request: Request) {
       }
     }
 
+
+    if (!figmaToken) {
+      result.figma.error = 'Missing Figma token';
+    } else {
+      try {
+        const response = await fetch('https://api.figma.com/v1/me', {
+          headers: {
+            'X-Figma-Token': figmaToken,
+          },
+        });
+
+        if (!response.ok) {
+          const details = await response.text();
+          throw new Error(details || `HTTP ${response.status}`);
+        }
+
+        result.figma.connected = true;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        result.figma.error = `Figma connection failed: ${message}`;
+      }
+    }
+
     return NextResponse.json({
-      success: result.vercel.connected && result.turso.connected && result.openai.connected,
+      success: result.vercel.connected && result.turso.connected && result.openai.connected && result.figma.connected,
       ...result,
     });
   } catch (error: unknown) {

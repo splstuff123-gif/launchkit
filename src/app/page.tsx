@@ -83,19 +83,23 @@ export default function Home() {
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [vercelToken, setVercelToken] = useState('');
   const [tursoToken, setTursoToken] = useState('');
+  const [figmaToken, setFigmaToken] = useState('');
   const [openAiKey, setOpenAiKey] = useState('');
   const [requirementsPromptEdit, setRequirementsPromptEdit] = useState('');
   const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
   const [isTestingOpenAiKey, setIsTestingOpenAiKey] = useState(false);
+  const [isGeneratingMockupBrief, setIsGeneratingMockupBrief] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<{
     vercel: IntegrationStatus;
     turso: IntegrationStatus;
     openai: IntegrationStatus;
+    figma: IntegrationStatus;
   } | null>(null);
 
   const [asyncMode, setAsyncMode] = useState(true);
   const [jobId, setJobId] = useState<string | null>(null);
   const [previewTab, setPreviewTab] = useState<'landing' | 'app'>('landing');
+  const [figmaMockupBrief, setFigmaMockupBrief] = useState<{ prompt: string; figmaUrl: string } | null>(null);
 
   const previewName = formData.name.trim() || 'Your SaaS';
   const previewPrice = formData.price.trim() || '29';
@@ -150,7 +154,7 @@ export default function Home() {
       const response = await fetch('/api/integrations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vercelToken, tursoToken, openAiKey }),
+        body: JSON.stringify({ vercelToken, tursoToken, openAiKey, figmaToken }),
       });
 
       const data = await response.json();
@@ -160,6 +164,7 @@ export default function Home() {
         vercel: data.vercel,
         turso: data.turso,
         openai: data.openai || { connected: false, error: 'OpenAI status unavailable' },
+        figma: data.figma || { connected: false, error: 'Figma status unavailable' },
       });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to test integrations';
@@ -188,12 +193,41 @@ export default function Home() {
         vercel: previous?.vercel || { connected: false },
         turso: previous?.turso || { connected: false },
         openai: data.openai || { connected: false, error: 'OpenAI status unavailable' },
+        figma: data.figma || { connected: false, error: 'Figma status unavailable' },
       }));
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to validate OpenAI key';
       setResult({ error: msg });
     } finally {
       setIsTestingOpenAiKey(false);
+    }
+  };
+
+  const generateFigmaMockupBrief = async () => {
+    setIsGeneratingMockupBrief(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/mockups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          description: formData.description,
+          price: formData.price,
+          additionalPrompt: requirementsPromptEdit,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      setFigmaMockupBrief({ prompt: data.figmaPrompt, figmaUrl: data.figmaUrl });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Failed to generate Figma mockup brief';
+      setResult({ error: msg });
+    } finally {
+      setIsGeneratingMockupBrief(false);
     }
   };
 
@@ -390,6 +424,18 @@ export default function Home() {
                     </div>
 
                     <div>
+                      <label htmlFor="figmaToken" className="mb-2 block text-sm font-medium text-gray-300">Figma Token (for API validation)</label>
+                      <input
+                        id="figmaToken"
+                        type="password"
+                        value={figmaToken}
+                        onChange={(e) => setFigmaToken(e.target.value)}
+                        placeholder="figd_..."
+                        className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
                       <label htmlFor="openAiKey" className="mb-2 block text-sm font-medium text-gray-300">OpenAI API Key (optional for richer requirements)</label>
                       <input
                         id="openAiKey"
@@ -431,15 +477,20 @@ export default function Home() {
                           <span className={integrationStatus.openai.connected ? 'text-green-400' : 'text-red-400'}>
                             OpenAI: {integrationStatus.openai.connected ? 'connected' : 'failed'}
                           </span>
+                          {' • '}
+                          <span className={integrationStatus.figma.connected ? 'text-green-400' : 'text-red-400'}>
+                            Figma: {integrationStatus.figma.connected ? 'connected' : 'failed'}
+                          </span>
                         </div>
                       )}
                     </div>
 
-                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected || !integrationStatus.openai.connected) && (
+                    {integrationStatus && (!integrationStatus.vercel.connected || !integrationStatus.turso.connected || !integrationStatus.openai.connected || !integrationStatus.figma.connected) && (
                       <div className="rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-200">
                         {!integrationStatus.vercel.connected && <p>{integrationStatus.vercel.error}</p>}
                         {!integrationStatus.turso.connected && <p>{integrationStatus.turso.error}</p>}
                         {!integrationStatus.openai.connected && <p>{integrationStatus.openai.error}</p>}
+                        {!integrationStatus.figma.connected && <p>{integrationStatus.figma.error}</p>}
                       </div>
                     )}
                   </div>
@@ -455,6 +506,14 @@ export default function Home() {
                       className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-600 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isReqGenerating ? 'Generating…' : 'Generate requirements'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generateFigmaMockupBrief}
+                      disabled={isGeneratingMockupBrief || !formData.name || !formData.description}
+                      className="px-4 py-2 rounded-lg bg-indigo-800 hover:bg-indigo-700 border border-indigo-600 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isGeneratingMockupBrief ? 'Generating mockup brief…' : 'Generate Figma AI mockup brief'}
                     </button>
                   </div>
 
@@ -478,6 +537,15 @@ export default function Home() {
                     rows={8}
                     className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-500"
                   />
+
+
+                  {figmaMockupBrief && (
+                    <div className="rounded-lg border border-indigo-700 bg-indigo-950/30 p-3 text-xs text-indigo-100 space-y-2">
+                      <p className="font-semibold">Figma AI mockup brief ready</p>
+                      <a href={figmaMockupBrief.figmaUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300 underline">Open Figma →</a>
+                      <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap rounded bg-black/30 p-2 text-[11px]">{figmaMockupBrief.prompt}</pre>
+                    </div>
+                  )}
 
                   {requirementsDoc && (
                     <div className="space-y-3">
