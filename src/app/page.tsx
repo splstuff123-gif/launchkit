@@ -84,6 +84,7 @@ export default function Home() {
   const [vercelToken, setVercelToken] = useState('');
   const [tursoToken, setTursoToken] = useState('');
   const [openAiKey, setOpenAiKey] = useState('');
+  const [requirementsPromptEdit, setRequirementsPromptEdit] = useState('');
   const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
   const [isTestingOpenAiKey, setIsTestingOpenAiKey] = useState(false);
   const [integrationStatus, setIntegrationStatus] = useState<{
@@ -117,6 +118,7 @@ export default function Home() {
           name: formData.name,
           description: formData.description,
           ...(openAiKey.trim() ? { openAiKey: openAiKey.trim() } : {}),
+          ...(requirementsPromptEdit.trim() ? { additionalPrompt: requirementsPromptEdit.trim() } : {}),
         }),
       });
       const data = await response.json();
@@ -454,6 +456,19 @@ export default function Home() {
                     >
                       {isReqGenerating ? 'Generating…' : 'Generate requirements'}
                     </button>
+                  </div>
+
+                  <div>
+                    <label htmlFor="requirementsPromptEdit" className="mb-2 block text-sm font-medium text-gray-300">Additional prompt edits (optional)</label>
+                    <textarea
+                      id="requirementsPromptEdit"
+                      value={requirementsPromptEdit}
+                      onChange={(e) => setRequirementsPromptEdit(e.target.value)}
+                      placeholder="Example: prioritize enterprise RBAC, add audit logs, include SOC2-ready controls, and detail onboarding acceptance criteria."
+                      rows={3}
+                      className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">This refines the consulting-style requirements response generated from your description.</p>
                   </div>
 
                   <textarea

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
+const REQUIREMENTS_SYSTEM_PROMPT = 'You are a consulting firm generating thorough requirements for a product based on the description.';
+
 type RequirementPriority = 'must' | 'should' | 'could';
 
 type RequirementItem = {
@@ -142,8 +144,9 @@ function enrichRequirements(requirements: RequirementItem[], description: string
   });
 }
 
-function inferSpec(name: string, description: string): ProductSpec {
-  const signals = extractSignals(description);
+function inferSpec(name: string, description: string, additionalPrompt?: string): ProductSpec {
+  const mergedDescription = additionalPrompt?.trim() ? `${description}\n\nAdditional instructions: ${additionalPrompt.trim()}` : description;
+  const signals = extractSignals(mergedDescription);
   const highlights = splitDescriptionHighlights(description);
 
   const userRoles = signals.actors.length
@@ -181,7 +184,7 @@ function inferSpec(name: string, description: string): ProductSpec {
       id: '1',
       priority: 'must',
       title: 'Description-aligned core workflow',
-      description: `Implement the core user journey described as: "${description}". Explicitly cover: ${highlights.join(' | ') || 'primary value journey'}.`,
+      description: `Implement the core user journey described as: "${mergedDescription}". Explicitly cover: ${highlights.join(' | ') || 'primary value journey'}.`,
     },
     {
       id: '2',
@@ -233,6 +236,21 @@ function inferSpec(name: string, description: string): ProductSpec {
     });
   }
 
+  if (additionalPrompt?.trim()) {
+    requirements.push({
+      id: String(requirements.length + 1),
+      priority: 'should',
+      title: 'Additional prompt directives',
+      description: `Implement these explicit requirement edits: ${additionalPrompt.trim()}.`,
+      sourceSnippet: additionalPrompt.trim(),
+      acceptanceCriteria: [
+        'All additional directives are represented in implementation tasks.',
+        'Each directive has testable acceptance criteria.',
+      ],
+      businessImpact: 'Ensures custom operator constraints are honored before build.',
+    });
+  }
+
   const allSignals = unique([
     ...signals.capabilities,
     ...signals.integrations,
@@ -240,7 +258,7 @@ function inferSpec(name: string, description: string): ProductSpec {
     ...signals.analyticsHints,
   ]);
 
-  const enriched = enrichRequirements(requirements, description, signals);
+  const enriched = enrichRequirements(requirements, mergedDescription, signals);
   const reqText = enriched.map((r) => `${r.title} ${r.description} ${r.sourceSnippet ?? ''}`).join(' ').toLowerCase();
   const matchedSignals = allSignals.filter((signal) => reqText.includes(signal.split(' ')[0] || signal));
   const missingSignals = allSignals.filter((signal) => !matchedSignals.includes(signal));
@@ -268,7 +286,7 @@ function inferSpec(name: string, description: string): ProductSpec {
   };
 }
 
-async function inferSpecWithLLM(name: string, description: string, openAiKey?: string): Promise<ProductSpec | null> {
+async function inferSpecWithLLM(name: string, description: string, openAiKey?: string, additionalPrompt?: string): Promise<ProductSpec | null> {
   const apiKey = openAiKey?.trim() || process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
@@ -286,11 +304,11 @@ async function inferSpecWithLLM(name: string, description: string, openAiKey?: s
           {
             role: 'system',
             content:
-              'Return ONLY valid JSON for ProductSpec v2 with fields: version, productName, productDescription, entities, userRoles, workflows, monetization, analyticsEvents, requirements.',
+              `${REQUIREMENTS_SYSTEM_PROMPT} Return ONLY valid JSON for ProductSpec v2 with fields: version, productName, productDescription, entities, userRoles, workflows, monetization, analyticsEvents, requirements.`,
           },
           {
             role: 'user',
-            content: `Name: ${name}\nDescription: ${description}`,
+            content: `Name: ${name}\nDescription: ${description}${additionalPrompt?.trim() ? `\nAdditional prompt edits: ${additionalPrompt.trim()}` : ''}`,
           },
         ],
       }),
@@ -307,8 +325,8 @@ async function inferSpecWithLLM(name: string, description: string, openAiKey?: s
   }
 }
 
-function normalizeAndCorrelate(spec: ProductSpec, name: string, description: string): ProductSpec {
-  const inferred = inferSpec(name, description);
+function normalizeAndCorrelate(spec: ProductSpec, name: string, description: string, additionalPrompt?: string): ProductSpec {
+  const inferred = inferSpec(name, description, additionalPrompt);
   const normalized: ProductSpec = {
     ...spec,
     productName: spec.productName || inferred.productName,
@@ -321,7 +339,8 @@ function normalizeAndCorrelate(spec: ProductSpec, name: string, description: str
     requirements: spec.requirements?.length ? spec.requirements : inferred.requirements,
   };
 
-  const signals = extractSignals(description);
+  const mergedDescription = additionalPrompt?.trim() ? `${description}\n\nAdditional instructions: ${additionalPrompt.trim()}` : description;
+  const signals = extractSignals(mergedDescription);
   normalized.requirements = enrichRequirements(normalized.requirements, description, signals);
 
   const reqText = normalized.requirements
@@ -381,7 +400,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { name, description, openAiKey } = await request.json();
+    const { name, description, openAiKey, additionalPrompt } = await request.json();
 
     if (!description) {
       return NextResponse.json({ error: 'Missing description' }, { status: 400 });
@@ -389,9 +408,10 @@ export async function POST(request: Request) {
 
     const safeName = String(name || '');
     const safeDescription = String(description || '');
+    const safeAdditionalPrompt = additionalPrompt ? String(additionalPrompt) : '';
 
-    const llmSpec = await inferSpecWithLLM(safeName, safeDescription, openAiKey ? String(openAiKey) : undefined);
-    let spec = normalizeAndCorrelate(llmSpec || inferSpec(safeName, safeDescription), safeName, safeDescription);
+    const llmSpec = await inferSpecWithLLM(safeName, safeDescription, openAiKey ? String(openAiKey) : undefined, safeAdditionalPrompt);
+    let spec = normalizeAndCorrelate(llmSpec || inferSpec(safeName, safeDescription, safeAdditionalPrompt), safeName, safeDescription, safeAdditionalPrompt);
 
     let errors = validateSpec(spec);
     if (errors.length > 0) {
@@ -413,7 +433,8 @@ export async function POST(request: Request) {
               ],
         },
         safeName,
-        safeDescription
+        safeDescription,
+        safeAdditionalPrompt
       );
       errors = validateSpec(spec);
     }
