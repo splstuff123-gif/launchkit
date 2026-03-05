@@ -83,7 +83,6 @@ export default function Home() {
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [vercelToken, setVercelToken] = useState('');
   const [tursoToken, setTursoToken] = useState('');
-  const [figmaToken, setFigmaToken] = useState('');
   const [openAiKey, setOpenAiKey] = useState('');
   const [requirementsPromptEdit, setRequirementsPromptEdit] = useState('');
   const [isTestingIntegrations, setIsTestingIntegrations] = useState(false);
@@ -155,7 +154,7 @@ export default function Home() {
       const response = await fetch('/api/integrations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vercelToken, tursoToken, openAiKey, figmaToken }),
+        body: JSON.stringify({ vercelToken, tursoToken, openAiKey }),
       });
 
       const data = await response.json();
@@ -224,6 +223,7 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
 
       setFigmaMockupBrief({ prompt: data.figmaPrompt, figmaUrl: data.figmaUrl });
+      setFigmaEmbedUrl(data.figmaUrl || '');
       setPreviewTab('figma');
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to generate Figma mockup brief';
@@ -425,16 +425,8 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div>
-                      <label htmlFor="figmaToken" className="mb-2 block text-sm font-medium text-gray-300">Figma Token (for API validation)</label>
-                      <input
-                        id="figmaToken"
-                        type="password"
-                        value={figmaToken}
-                        onChange={(e) => setFigmaToken(e.target.value)}
-                        placeholder="figd_..."
-                        className="w-full rounded-lg border border-gray-600 bg-gray-900 px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                    <div className="rounded-lg border border-indigo-800 bg-indigo-950/20 px-4 py-3 text-xs text-indigo-100">
+                      Figma authentication uses the server-side <code>FIGMA_TOKEN</code> automatically.
                     </div>
 
                     <div>

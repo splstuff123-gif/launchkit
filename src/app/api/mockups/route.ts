@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
+const FIGMA_BASE_URL = 'https://www.figma.com';
+
 function inferProductType(description: string) {
   const desc = description.toLowerCase();
   if (/marketplace|vendor|buyer|seller|booking/.test(desc)) return 'Marketplace SaaS';
@@ -51,11 +53,55 @@ export async function POST(request: Request) {
     }
 
     const figmaPrompt = buildFigmaAiPrompt({ name, description, price, additionalPrompt });
+    const figmaToken = process.env.FIGMA_TOKEN?.trim();
+
+    if (!figmaToken) {
+      return NextResponse.json(
+        { error: 'Missing FIGMA_TOKEN. Add it to .env.local to enable automatic mockup preview.' },
+        { status: 500 }
+      );
+    }
+
+    const configuredFileKey = process.env.FIGMA_MOCKUP_FILE_KEY?.trim();
+    const configuredUrl = process.env.FIGMA_MOCKUP_URL?.trim();
+    let figmaUrl = configuredUrl || `${FIGMA_BASE_URL}/`;
+
+    if (configuredFileKey) {
+      const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
+        headers: {
+          'X-Figma-Token': figmaToken,
+        },
+      });
+
+      if (!verifyResponse.ok) {
+        const details = await verifyResponse.text().catch(() => 'Unable to validate configured Figma file key');
+        return NextResponse.json(
+          { error: `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}` },
+          { status: 500 }
+        );
+      }
+
+      figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
+    } else {
+      const meResponse = await fetch('https://api.figma.com/v1/me', {
+        headers: {
+          'X-Figma-Token': figmaToken,
+        },
+      });
+
+      if (!meResponse.ok) {
+        const details = await meResponse.text().catch(() => 'Unable to validate Figma token');
+        return NextResponse.json(
+          { error: `Unable to access Figma profile with FIGMA_TOKEN: ${details}` },
+          { status: 500 }
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,
       figmaPrompt,
-      figmaUrl: 'https://www.figma.com/',
+      figmaUrl,
       recommendedFrames: ['Landing', 'Pricing/Billing', 'Dashboard', 'Onboarding', 'Settings'],
       handoffChecklist: [
         'Paste the prompt into Figma AI / Make Design flow',
