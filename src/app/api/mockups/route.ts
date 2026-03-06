@@ -79,28 +79,38 @@ export async function POST(request: Request) {
     }
 
     if (figmaToken && configuredFileKey) {
-      const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
-        headers: {
-          'X-Figma-Token': figmaToken,
-        },
-      });
+      try {
+        const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
+          headers: {
+            'X-Figma-Token': figmaToken,
+          },
+        });
 
-      if (!verifyResponse.ok) {
-        const details = await verifyResponse.text().catch(() => 'Unable to validate configured Figma file key');
-        warning = `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}`;
-      } else {
-        figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
+        if (!verifyResponse.ok) {
+          const details = await verifyResponse.text().catch(() => 'Unable to validate configured Figma file key');
+          warning = `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}`;
+        } else {
+          figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
+        }
+      } catch (error: unknown) {
+        const details = error instanceof Error ? error.message : 'Unknown Figma API error';
+        warning = `Unable to validate FIGMA_MOCKUP_FILE_KEY right now: ${details}`;
       }
     } else if (figmaToken) {
-      const meResponse = await fetch('https://api.figma.com/v1/me', {
-        headers: {
-          'X-Figma-Token': figmaToken,
-        },
-      });
+      try {
+        const meResponse = await fetch('https://api.figma.com/v1/me', {
+          headers: {
+            'X-Figma-Token': figmaToken,
+          },
+        });
 
-      if (!meResponse.ok) {
-        const details = await meResponse.text().catch(() => 'Unable to validate Figma token');
-        warning = `Unable to access Figma profile with FIGMA_TOKEN: ${details}`;
+        if (!meResponse.ok) {
+          const details = await meResponse.text().catch(() => 'Unable to validate Figma token');
+          warning = `Unable to access Figma profile with FIGMA_TOKEN: ${details}`;
+        }
+      } catch (error: unknown) {
+        const details = error instanceof Error ? error.message : 'Unknown Figma API error';
+        warning = `Unable to validate FIGMA_TOKEN right now: ${details}`;
       }
     }
 
