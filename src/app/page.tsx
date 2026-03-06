@@ -34,6 +34,7 @@ export default function Home() {
   const [isReqGenerating, setIsReqGenerating] = useState(false);
   const [requirementsDoc, setRequirementsDoc] = useState<RequirementDocView | null>(null);
   const [requirementsText, setRequirementsText] = useState('');
+  const [requirementsLlmStatus, setRequirementsLlmStatus] = useState<string>('');
 
   type GenerateResponse = {
     error?: string;
@@ -129,6 +130,7 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
 
       setRequirementsDoc(data.doc);
+      setRequirementsLlmStatus(data.llmReason || (data.llmUsed ? 'Generated with OpenAI' : 'Fallback heuristics used'));
       // Simple text view for now (editable)
       const text = (data.doc.requirements || [])
         .map((r: { priority: string; title: string; description?: string }) =>
@@ -558,6 +560,11 @@ export default function Home() {
 
                   {requirementsDoc && (
                     <div className="space-y-3">
+                      {requirementsLlmStatus && (
+                        <div className="rounded-lg border border-blue-800 bg-blue-950/30 p-3 text-xs text-blue-100">
+                          Requirements generation source: {requirementsLlmStatus}
+                        </div>
+                      )}
                       <div className="text-xs text-gray-400">
                         Draft generated from your description. You can edit freely before deploying.
                       </div>

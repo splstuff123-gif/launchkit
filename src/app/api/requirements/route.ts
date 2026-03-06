@@ -3,6 +3,17 @@ import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
 const REQUIREMENTS_SYSTEM_PROMPT = 'You are a consulting firm generating thorough requirements for a product based on the description.';
 
+function resolveOpenAiKey(openAiKey?: string) {
+  return (
+    openAiKey?.trim() ||
+    process.env.OPENAI_API_KEY?.trim() ||
+    process.env.OPENAI_KEY?.trim() ||
+    process.env.GPT_API_KEY?.trim() ||
+    ''
+  );
+}
+
+
 type RequirementPriority = 'must' | 'should' | 'could';
 
 type RequirementItem = {
@@ -286,9 +297,9 @@ function inferSpec(name: string, description: string, additionalPrompt?: string)
   };
 }
 
-async function inferSpecWithLLM(name: string, description: string, openAiKey?: string, additionalPrompt?: string): Promise<ProductSpec | null> {
-  const apiKey = openAiKey?.trim() || process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+async function inferSpecWithLLM(name: string, description: string, openAiKey?: string, additionalPrompt?: string): Promise<{ spec: ProductSpec | null; reason?: string }> {
+  const apiKey = resolveOpenAiKey(openAiKey);
+  if (!apiKey) return { spec: null, reason: 'Missing OpenAI key (checked OPENAI_API_KEY, OPENAI_KEY, GPT_API_KEY)' };
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -314,14 +325,15 @@ async function inferSpecWithLLM(name: string, description: string, openAiKey?: s
       }),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) return { spec: null, reason: `OpenAI API returned HTTP ${response.status}` };
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
-    if (!content) return null;
+    if (!content) return { spec: null, reason: 'OpenAI response did not include content' };
 
-    return JSON.parse(content) as ProductSpec;
-  } catch {
-    return null;
+    return { spec: JSON.parse(content) as ProductSpec };
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : 'Unknown OpenAI error';
+    return { spec: null, reason };
   }
 }
 
@@ -410,8 +422,9 @@ export async function POST(request: Request) {
     const safeDescription = String(description || '');
     const safeAdditionalPrompt = additionalPrompt ? String(additionalPrompt) : '';
 
-    const llmSpec = await inferSpecWithLLM(safeName, safeDescription, openAiKey ? String(openAiKey) : undefined, safeAdditionalPrompt);
-    let spec = normalizeAndCorrelate(llmSpec || inferSpec(safeName, safeDescription, safeAdditionalPrompt), safeName, safeDescription, safeAdditionalPrompt);
+    const llm = await inferSpecWithLLM(safeName, safeDescription, openAiKey ? String(openAiKey) : undefined, safeAdditionalPrompt);
+    const llmUsed = Boolean(llm.spec);
+    let spec = normalizeAndCorrelate((llm.spec || inferSpec(safeName, safeDescription, safeAdditionalPrompt)), safeName, safeDescription, safeAdditionalPrompt);
 
     let errors = validateSpec(spec);
     if (errors.length > 0) {
@@ -446,6 +459,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       doc: spec,
+      llmUsed,
+      llmReason: llmUsed ? 'Generated with OpenAI' : llm.reason || 'Fallback heuristics used',
       promptSuggestion:
         'Edit requirements with prompt-correlation in mind. You can ask: "expand description highlights", "turn signal X into acceptance criteria", "add onboarding KPI", "add checkout recovery flow".',
     });

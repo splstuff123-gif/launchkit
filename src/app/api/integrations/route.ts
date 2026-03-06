@@ -15,7 +15,11 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const vercelToken = (body.vercelToken as string | undefined)?.trim() || process.env.VERCEL_TOKEN;
     const tursoToken = (body.tursoToken as string | undefined)?.trim() || process.env.TURSO_TOKEN;
-    const openAiKey = (body.openAiKey as string | undefined)?.trim() || process.env.OPENAI_API_KEY;
+    const openAiKey =
+      (body.openAiKey as string | undefined)?.trim() ||
+      process.env.OPENAI_API_KEY?.trim() ||
+      process.env.OPENAI_KEY?.trim() ||
+      process.env.GPT_API_KEY?.trim();
     const figmaToken = (body.figmaToken as string | undefined)?.trim() || process.env.FIGMA_TOKEN;
 
     const result: {
