@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     }
 
     if (!figmaToken) {
-warning = warning || 'FIGMA_TOKEN is missing. Add it to .env.local for token-validated automatic mockup links.';
+      warning = warning || 'FIGMA_TOKEN is missing. Add it to .env.local for token-validated automatic mockup links.';
     } else if (configuredFileKey) {
       const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
         headers: {
@@ -91,7 +91,7 @@ warning = warning || 'FIGMA_TOKEN is missing. Add it to .env.local for token-val
         const details = await verifyResponse.text().catch(() => 'Unable to validate configured Figma file key');
         warning = `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}`;
       } else {
-  figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
+        figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
       }
     } else {
       const meResponse = await fetch('https://api.figma.com/v1/me', {
