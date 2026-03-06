@@ -54,19 +54,14 @@ export async function POST(request: Request) {
 
     const figmaPrompt = buildFigmaAiPrompt({ name, description, price, additionalPrompt });
     const figmaToken = process.env.FIGMA_TOKEN?.trim();
-
-    if (!figmaToken) {
-      return NextResponse.json(
-        { error: 'Missing FIGMA_TOKEN. Add it to .env.local to enable automatic mockup preview.' },
-        { status: 500 }
-      );
-    }
-
     const configuredFileKey = process.env.FIGMA_MOCKUP_FILE_KEY?.trim();
     const configuredUrl = process.env.FIGMA_MOCKUP_URL?.trim();
     let figmaUrl = configuredUrl || `${FIGMA_BASE_URL}/`;
+    let warning: string | null = null;
 
-    if (configuredFileKey) {
+    if (!figmaToken) {
+      warning = 'FIGMA_TOKEN is missing. Returning fallback URL only; set FIGMA_TOKEN for token-validated automatic mockup links.';
+    } else if (configuredFileKey) {
       const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
         headers: {
           'X-Figma-Token': figmaToken,
@@ -75,13 +70,10 @@ export async function POST(request: Request) {
 
       if (!verifyResponse.ok) {
         const details = await verifyResponse.text().catch(() => 'Unable to validate configured Figma file key');
-        return NextResponse.json(
-          { error: `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}` },
-          { status: 500 }
-        );
+        warning = `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}`;
+      } else {
+        figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
       }
-
-      figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
     } else {
       const meResponse = await fetch('https://api.figma.com/v1/me', {
         headers: {
@@ -91,10 +83,7 @@ export async function POST(request: Request) {
 
       if (!meResponse.ok) {
         const details = await meResponse.text().catch(() => 'Unable to validate Figma token');
-        return NextResponse.json(
-          { error: `Unable to access Figma profile with FIGMA_TOKEN: ${details}` },
-          { status: 500 }
-        );
+        warning = `Unable to access Figma profile with FIGMA_TOKEN: ${details}`;
       }
     }
 
@@ -102,6 +91,7 @@ export async function POST(request: Request) {
       success: true,
       figmaPrompt,
       figmaUrl,
+      ...(warning ? { warning } : {}),
       recommendedFrames: ['Landing', 'Pricing/Billing', 'Dashboard', 'Onboarding', 'Settings'],
       handoffChecklist: [
         'Paste the prompt into Figma AI / Make Design flow',

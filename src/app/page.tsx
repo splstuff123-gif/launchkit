@@ -98,7 +98,7 @@ export default function Home() {
   const [asyncMode, setAsyncMode] = useState(true);
   const [jobId, setJobId] = useState<string | null>(null);
   const [previewTab, setPreviewTab] = useState<'landing' | 'app' | 'figma'>('landing');
-  const [figmaMockupBrief, setFigmaMockupBrief] = useState<{ prompt: string; figmaUrl: string } | null>(null);
+  const [figmaMockupBrief, setFigmaMockupBrief] = useState<{ prompt: string; figmaUrl: string; warning?: string } | null>(null);
   const [figmaEmbedUrl, setFigmaEmbedUrl] = useState('');
 
   const previewName = formData.name.trim() || 'Your SaaS';
@@ -222,7 +222,7 @@ export default function Home() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      setFigmaMockupBrief({ prompt: data.figmaPrompt, figmaUrl: data.figmaUrl });
+      setFigmaMockupBrief({ prompt: data.figmaPrompt, figmaUrl: data.figmaUrl, ...(data.warning ? { warning: data.warning } : {}) });
       setFigmaEmbedUrl(data.figmaUrl || '');
       setPreviewTab('figma');
     } catch (error: unknown) {
@@ -537,6 +537,9 @@ export default function Home() {
                     <div className="rounded-lg border border-indigo-700 bg-indigo-950/30 p-3 text-xs text-indigo-100 space-y-2">
                       <p className="font-semibold">Figma AI mockup brief ready</p>
                       <a href={figmaMockupBrief.figmaUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300 underline">Open Figma →</a>
+                      {figmaMockupBrief.warning && (
+                        <p className="rounded bg-amber-950/40 p-2 text-[11px] text-amber-200">{figmaMockupBrief.warning}</p>
+                      )}
                       <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap rounded bg-black/30 p-2 text-[11px]">{figmaMockupBrief.prompt}</pre>
                     </div>
                   )}
