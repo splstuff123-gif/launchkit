@@ -3,6 +3,17 @@ import { checkRateLimit, requestKey } from '@/lib/rate-limit';
 
 const FIGMA_BASE_URL = 'https://www.figma.com';
 
+
+function isEmbeddableFigmaUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (!/figma\.com$/i.test(url.hostname) && !/\.figma\.com$/i.test(url.hostname)) return false;
+    return /^\/(file|design|proto|board|jam)\//.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function inferProductType(description: string) {
   const desc = description.toLowerCase();
   if (/marketplace|vendor|buyer|seller|booking/.test(desc)) return 'Marketplace SaaS';
@@ -56,11 +67,19 @@ export async function POST(request: Request) {
     const figmaToken = process.env.FIGMA_TOKEN?.trim();
     const configuredFileKey = process.env.FIGMA_MOCKUP_FILE_KEY?.trim();
     const configuredUrl = process.env.FIGMA_MOCKUP_URL?.trim();
-    let figmaUrl = configuredUrl || `${FIGMA_BASE_URL}/`;
+    let figmaUrl = '';
     let warning: string | null = null;
 
+    if (configuredUrl) {
+      if (isEmbeddableFigmaUrl(configuredUrl)) {
+        figmaUrl = configuredUrl;
+      } else {
+        warning = 'FIGMA_MOCKUP_URL is not an embeddable Figma design/prototype URL. Ignoring it for preview.';
+      }
+    }
+
     if (!figmaToken) {
-      warning = 'FIGMA_TOKEN is missing. Returning fallback URL only; set FIGMA_TOKEN for token-validated automatic mockup links.';
+warning = warning || 'FIGMA_TOKEN is missing. Add it to .env.local for token-validated automatic mockup links.';
     } else if (configuredFileKey) {
       const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
         headers: {
@@ -72,7 +91,7 @@ export async function POST(request: Request) {
         const details = await verifyResponse.text().catch(() => 'Unable to validate configured Figma file key');
         warning = `Configured FIGMA_MOCKUP_FILE_KEY is invalid or inaccessible: ${details}`;
       } else {
-        figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
+  figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
       }
     } else {
       const meResponse = await fetch('https://api.figma.com/v1/me', {

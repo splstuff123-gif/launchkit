@@ -2,6 +2,16 @@
 
 import { useMemo, useState } from 'react';
 
+function isEmbeddableFigmaUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    if (!/figma\.com$/i.test(parsed.hostname) && !/\.figma\.com$/i.test(parsed.hostname)) return false;
+    return /^\/(file|design|proto|board|jam)\//.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 type RequirementDocView = {
   version: number;
   productName: string;
@@ -103,6 +113,7 @@ export default function Home() {
   const [figmaEmbedUrl, setFigmaEmbedUrl] = useState('');
 
   const previewName = formData.name.trim() || 'Your SaaS';
+  const hasEmbeddableFigmaPreview = isEmbeddableFigmaUrl(figmaEmbedUrl.trim());
   const previewPrice = formData.price.trim() || '29';
   const previewType = useMemo(() => {
     const desc = formData.description.toLowerCase();
@@ -225,7 +236,7 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
 
       setFigmaMockupBrief({ prompt: data.figmaPrompt, figmaUrl: data.figmaUrl, ...(data.warning ? { warning: data.warning } : {}) });
-      setFigmaEmbedUrl(data.figmaUrl || '');
+      setFigmaEmbedUrl(isEmbeddableFigmaUrl(String(data.figmaUrl || '').trim()) ? data.figmaUrl : '');
       setPreviewTab('figma');
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Failed to generate Figma mockup brief';
@@ -652,7 +663,7 @@ export default function Home() {
                       </div>
                     </div>
                   ) : previewTab === 'figma' ? (
-                    figmaEmbedUrl.trim() ? (
+                    hasEmbeddableFigmaPreview ? (
                       <div className="space-y-2">
                         <p className="text-xs text-gray-400">Embedded Figma preview</p>
                         <iframe
@@ -664,7 +675,7 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="rounded-md border border-gray-700 bg-gray-950 p-4 text-sm text-gray-300">
-                        Add a Figma share URL above to render the mockup here.
+                        Add a valid Figma design/prototype URL to render the mockup here.
                       </div>
                     )
                   ) : (
