@@ -78,9 +78,7 @@ export async function POST(request: Request) {
       }
     }
 
-    if (!figmaToken) {
-      warning = warning || 'FIGMA_TOKEN is missing. Add it to .env.local for token-validated automatic mockup links.';
-    } else if (configuredFileKey) {
+    if (figmaToken && configuredFileKey) {
       const verifyResponse = await fetch(`https://api.figma.com/v1/files/${configuredFileKey}`, {
         headers: {
           'X-Figma-Token': figmaToken,
@@ -93,7 +91,7 @@ export async function POST(request: Request) {
       } else {
         figmaUrl = `${FIGMA_BASE_URL}/file/${configuredFileKey}`;
       }
-    } else {
+    } else if (figmaToken) {
       const meResponse = await fetch('https://api.figma.com/v1/me', {
         headers: {
           'X-Figma-Token': figmaToken,

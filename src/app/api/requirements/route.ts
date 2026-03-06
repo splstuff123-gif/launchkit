@@ -299,7 +299,7 @@ function inferSpec(name: string, description: string, additionalPrompt?: string)
 
 async function inferSpecWithLLM(name: string, description: string, openAiKey?: string, additionalPrompt?: string): Promise<{ spec: ProductSpec | null; reason?: string }> {
   const apiKey = resolveOpenAiKey(openAiKey);
-  if (!apiKey) return { spec: null, reason: 'Missing OpenAI key (checked OPENAI_API_KEY, OPENAI_KEY, GPT_API_KEY)' };
+  if (!apiKey) return { spec: null, reason: 'Using built-in heuristic requirements mode (OpenAI key not configured).' };
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
